@@ -79,6 +79,7 @@ Plus per-voice trigger timing (`<voice>_tdelay`, `<voice>_twidth`). A voice is a
 - **Yocto V2.0** — the TR-808 clone whose schematic this simulation is based on (source build plan / Eagle net): [github.com/e-licktronic/Yocto-V2.0](https://github.com/e-licktronic/Yocto-V2.0)
 - **NGSpice** — [project site](https://ngspice.sourceforge.io/) · [downloads](https://ngspice.sourceforge.io/download.html) · [documentation](https://ngspice.sourceforge.io/docs.html) · [user's manual v47 (PDF)](https://ngspice.sourceforge.io/docs/ngspice-47-manual.pdf) · [source on GitHub](https://github.com/ngspice/ngspice)
 - **Roland TR-808** — the instrument being simulated: [overview](https://en.wikipedia.org/wiki/Roland_TR-808)
+- **DrumGroover** — the VST3 drum machine whose 808 engine is built on this simulation: [github.com/ReinerBforartists/Drumgroover](https://github.com/ReinerBforartists/Drumgroover)
 
 ## License
 [MIT](LICENSE).
