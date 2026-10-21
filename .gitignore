@@ -1,0 +1,5 @@
+# NGSpice simulation outputs (regenerable; the node dump can be GB-scale)
+*.raw
+tr808_full_nodes.txt
+*.log
+wav/

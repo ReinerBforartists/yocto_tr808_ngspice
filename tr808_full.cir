@@ -1,0 +1,2152 @@
+* TR-808 / Yocto v2.007 -- combined NGSpice full circuit (one circuit).
+* All instrument branches share supply, models, IO buses and master stage as in
+* the schematic (sheets CY, BD, IO, Master). New instruments are added HERE as
+* another section, not as a separate file.
+*
+* Origin of the sections:
+*  - Models, supply, CY/Ride blocks 1-9 and block 11: from the CY/Ride rebuild.
+*    Only change: the TRIG_CY amplitude is the parameter trig_cy_amp
+*    (default 5 = as before).
+*  - HiHat (OH/CH): sheet HH (only the trigger amplitudes are parameters).
+*    Shares bp2out with CY.
+*  - BD: sheet BD, parts with suffix _bd, internal nets bd_n<NN>, supply
+*    b2p/b2n (+B2/-B2).
+*  - IO buses (sheet IO) and master stage U1 (sheet Master).
+*  - SD (snare): sheet SD + NOISE, parts with suffix sd_/no_, internal nets
+*    sd_n<NN>/no_n<NN>, supply SD: b3p/b3n (+B3/-B3, shared with HiHat U7),
+*    NOISE: b4p/b4n (+B4/-B4, new).
+*    Q35 (2SC828, noise source via the reverse-biased B-E junction, the same
+*    documented technique as Q8 in the real TR-808): the breakdown itself is
+*    modelled physically (D2SC828EB, Bv/Ibv from the verified 2SC828 datasheet
+*    V(BR)EBO=7V @ Ie=10uA, two independent sources; the circuit's own DC
+*    operating point hits the same value almost exactly). The noise AMPLITUDE
+*    (TRNOISE), however, cannot be derived (pure shot noise at the bias current
+*    would be ~6 orders of magnitude too small for this known avalanche /
+*    microplasma mechanism) -- an explicit placeholder, not verified against
+*    hardware. Pot taper VR7/VR8/VR9 not measured (linear placeholder,
+*    sd_vr7/8/9).
+* Known gaps (not modelled, not invented): Q82/Q83 (2SC2878, no verified
+* model), Q79 bias network, jack / LEFT-RIGHT output path behind the Q82/Q83
+* nodes, WN (snare noise source, see above), instruments other than
+* CY/OH/CH/BD/SD (their bus resistors are tied to 0V on the source side,
+* see the IO section).
+* Assumption: cable J14 (IO) <-> J6 (Master) and J11/J13 <-> BD/CY/SD sheet
+* connectors pin for pin 1:1.
+* Parameters: bd_twidth (width of the TRIG_BD pulse, Yocto firmware 2 ms), trig_cy_amp / trig_bd_amp / trig_oh_amp / trig_ch_amp / trig_sd_amp (0 = not triggered;
+* default OH/CH = 0, since they choke each other in the real machine),
+* bd_vr4/bd_vr5/bd_vr6 / sd_vr7/sd_vr8/sd_vr9 (knob positions, sd_vr* taper
+* unconfirmed), vr28 (master pot).
+.param trig_cy_amp=5 trig_bd_amp=5 trig_oh_amp=0 trig_ch_amp=0 trig_sd_amp=5 bd_vr4=0.5 bd_vr5=0.5 bd_vr6=0.5 sd_vr7=0.5 sd_vr8=0.5 sd_vr9=0.5 vr28=0.5 bd_tdelay=20m bd_twidth=2m sd_tdelay=20m sd_twidth=2m trig_lt_amp=0 trig_mt_amp=0 trig_ht_amp=0 lt_vr10=0.5 lt_vr11=0.5 mt_vr12=0.5 mt_vr13=0.5 ht_vr14=0.5 ht_vr15=0.5 lt_tdelay=20m lt_twidth=2m mt_tdelay=20m mt_twidth=2m ht_tdelay=20m ht_twidth=2m lt_sw=1 mt_sw=1 ht_sw=1 trig_rm_amp=0 rm_vr16=0.5 rm_tdelay=20m rm_twidth=2m rm_sw=1 trig_hc_amp=0 hc_vr17=0.75 hc_tm3=0.60 hc_tdelay=20m hc_twidth=2m hc_sw=1 trig_cb_amp=0 cb_vr5=0.5 cb_tdelay=20m cb_twidth=2m trig_pc2_amp=0 pc2_vr1=0.5 pc2_vr2=0.5 pc2_vr3=0.5 pc2_vr18=0.5 pc2_vr19=0.5 pc2_vr20=0.5 pc2_tm5=0.5 pc2_sw2=1 pc2_sw3=1 pc2_tdelay=20m pc2_twidth=2m
+
+* ---- Transistor models (level 1, part verification, completed) ----
+* Q2SC945: final model (Bf=222.31, 7 NEC test cases <4% dev.).
+.model Q2SC945 NPN(Bf=222.31 Is=35.1f Ise=6.63e-15 Ne=1.319 Ikf=130m Vaf=315 Tf=.5564n Rb=9.86 Rc=0.68 Cjc=6.4p Cje=20p Tr=10n Mjc=.330 Vjc=.75 Mje=.33 Vje=.75 Cjs=2p)
+* Q2SA733: LTspice Standard.bjt, agrees with Renesas hFE(typ)=200.
+.model Q2SA733 PNP(IS=55.9f BF=205 NF=1.01201 VAF=135 IKF=462.6m
++ ISE=180f NE=1.65 BR=2.048 NR=1.012
++ RB=20 RE=10m RC=1.7
++ CJE=35p VJE=900m MJE=500m TF=700p
++ XTF=10 VTF=10 ITF=700m
++ CJC=13p VJC=750m MJC=400m XCJC=500m
++ TR=10n XTB=2.00849 EG=1.11 XTI=3 FC=500m)
+* D1N4148: verified against the official Nexperia SPICE model.
+.model D1N4148 D(Is=4.352n N=1.906 Rs=0.6458 Cjo=0.7048p Vj=0.869 M=0.03 Tt=3.48n Bv=110 Ibv=100u)
+* D1N34: germanium diode (Yocto value string 1N34 on D80-D85)
+.model D1N34 D(IS=4e-07 N=1.8953 RS=77.292 CJO=1.058e-12 VJ=0.75 M=0.33 BV=65 IBV=1m)
+* J2SK30: Toshiba 2SK30A rank Y (Yocto part Q74 on the RM sheet; the Roland service plan marks it 2SK30A (Y)). Sources: Idss rank Y 1.2-3.0 mA,
+* Vgs(off) -0.4..-5.0 V, |Yfs| >= 1.2 mS, Ciss 8.2 pF / Crss 2.6 pF typ (XIAOSHENG 2SK30A datasheet, second source of the Toshiba part); Vto/Beta/Rd/Rs from
+* the published 2SK30AY NJF model (T. Enzaka, LTspice standard.jft, Vto -1.4 V, Beta 1.1 mA/V^2), CGS/CGD recomputed from the datasheet Ciss/Crss with PB=1 V.
+* Vto of the individual part is NOT resolved by the datasheet (rank bounds only) -- open point. Only NJF level-1 parameters (ngspice).
+.model J2SK30 NJF(VTO=-1.4 BETA=1.1m LAMBDA=1m RD=30 RS=30 CGS=5.6p CGD=8.62p PB=1 IS=10f)
+* PC-2 Q6 calibrated to the Yocto2 recordings (2026-10-07, 'PC-2 long.aif' decay envelope 0.1-0.8 s): effective Vto -0.54 V instead of -1.4 V (rank of the real part unknown); together with CPC27 3.32u (effective, 1.51 x 2.2u) 1.0 dB rms envelope error.
+.model J2SK30PC2 NJF(VTO=-0.54 BETA=1.1m LAMBDA=1m RD=30 RS=30 CGS=5.6p CGD=8.62p PB=1 IS=10f)
+* D2SC828EB: 2SC828 base-emitter junction, reverse breakdown ONLY (Q35 noise source,
+* collector unconnected in the schematic -- see comment above). Bv/Ibv = V(BR)EBO=7V at
+* Ie=10uA (two independent sources: components101/utmel republication of the Toshiba family;
+* ST/Semtech 2SC828 datasheet cross-check, same value). Is/N/Rs are generic
+* small-signal silicon placeholders, NOT characterised for this part -- irrelevant,
+* since only the reverse branch is used here.
+.model D2SC828EB D(Is=10f N=1.5 Rs=5 Bv=7 Ibv=10u)
+
+* CD4584/MC14584B behavioural model. Threshold ratios CORRECTED
+* (U4 open point): the previous version used the onsemi datasheet
+* values measured at VDD=15V (VT+=8.0V/VT-=6.9V -> ratios 0.5333/0.46).
+* In the CY circuit, however, U4 is really supplied from vdd4 (confirmed
+* 4.7876V), not from 15V -- according to the datasheet the
+* threshold ratios are NOT exactly independent of VDD (VT+/VDD=0.54 instead of
+* 0.5333, VT-/VDD=0.42 instead of 0.46 at VDD=5.0V/25C typ, the table row
+* closest to our real vdd4) -- taken directly from the datasheet table, no
+* free fit / no interpolation. Hysteresis cross-check: 0.54-0.42=0.12,
+* times VDD=5V gives 0.6V, exactly the separately tabulated typical VH value
+* at VDD=5V -- internal consistency check passed.
+.subckt SCHMITT4584 IN OUT VDD VSS
+Bout OUT VSS V = (V(OUT,VSS)>0.5*V(VDD,VSS)) ? ((V(IN,VSS)>0.54*V(VDD,VSS)) ? 0 : V(VDD,VSS)) : ((V(IN,VSS)<0.42*V(VDD,VSS)) ? V(VDD,VSS) : 0)
+.ends
+
+* UPC4558_V3 op-amp terminal model (9 parameters
+* verified individually against the NEC datasheet table G10518EJAV0DS00,
+* all 0-0.36% dev.). Rout=196.08 Ohm is an unquantified placeholder
+* (no datasheet value found), CMRR/PSRR/Isc not modelled
+* (not effective with a clean DC supply and no interference, or no
+* datasheet value available).
+.subckt UPC4558_V3 INP INN OUT VCC VEE
+.param P_ROUT=196.08
+.param P_VOM_EMF_TARGET=14.275
+.param P_VOM_EMF={P_VOM_EMF_TARGET-0.885}
+Rib_p INP 0 1e12
+Rib_n INN 0 1e12
+Iib_p 0 INP {60n+5n/2}
+Iib_n 0 INN {60n-5n/2}
+Eoff INPoff 0 INP INN 1
+Voff INPoff INNoff DC 0.5m
+.param P_CMRR_RATIO=31622.8
+.param P_C1=53p
+.param P_GM={2*3.14159265*3Meg*P_C1}
+.param P_R1={1e5/P_GM}
+.param P_IMAX={1Meg*P_C1}
+Bgin1 0 n1 I = {P_IMAX*tanh((P_GM/P_IMAX)*(V(INNoff)+((V(INP)+V(INN))/2)/P_CMRR_RATIO))}
+R1 n1 0 {P_R1}
+C1 n1 0 {P_C1}
+.model DCLAMP D(Is=1e-20 N=1 Rs=1)
+.param P_VOM_HEADROOM_HI={15-P_VOM_EMF}
+Dclamp_hi n1 vout_hi DCLAMP
+Vout_hi vout_hi VCC DC {-P_VOM_HEADROOM_HI}
+Dclamp_lo vout_lo n1 DCLAMP
+Vout_lo vout_lo VEE DC {P_VOM_HEADROOM_HI}
+Eout n2 0 n1 0 1
+Rout n2 OUT {P_ROUT}
+.ends UPC4558_V3
+
+* AN6912 (Panasonic AN1339 datasheet, LM339 class): quadruple comparator, one channel per subcircuit, open-collector output.
+* Datasheet typical values (VCC=5V table): voltage gain 200 V/mV (RL=15k) -> tanh transition width Vw = (VCC-VEE)/2/200000 at the 15 V supply used here;
+* output low VOL=0.2 V at ISINK=3 mA -> saturated on-resistance 0.2 V / 3 mA; output leakage 0.1 nA at 5 V. Not modelled (datasheet gives no typical
+* or a value only as a bound): input offset (2 mV typ, sign unknown), input bias current (250 nA max only), response time 1.3 us, ISINK 10 mA min.
+.subckt AN6912_CMP INP INN OUT VCC VEE
+BSINK OUT VEE I={(3m/0.2)*V(OUT,VEE)*0.5*(1+tanh((V(INN)-V(INP))/(15/2/200000)))}
+RLEAK OUT VEE 50G
+.ends AN6912_CMP
+* BA6110 (ROHM BA6110FS datasheet, VCA/OTA with buffer; the SIP9 part of the Yocto library has the same pin functions). Pins: INP = positive input,
+* INN = negative input, CTRL = control input (datasheet pin 7), OUT = VCA output (pin 11, current output), BUFIN = buffer input (pin 12),
+* BUFOUT = buffer output (pin 14), BIAS = input bias diode pin (pin 5), VCC, VEE.
+* Datasheet equations: control current Icontrol flows into CTRL and is the tail current of the input pair, Av = gm*Ro = Icontrol/52mV * Ro (Fig.8,
+* no diode bias: checked against the 27k curve, 34.3 dB at 100 uA), differential input pair -> output current Icontrol*tanh(Vd/52mV).
+* BIAS is not connected inside this model: with the pin held at VEE (as on the Yocto HC sheet) no diode bias current flows (Id = 0, the Fig.8 condition).
+* CTRL pin: diode-connected NPN to VEE (Fig.1: control pin current mirror), modelled with the verified Q2SC945 Vbe (datasheet gives no Vbe value).
+* Buffer: unity-gain follower (Fig.1: NPN/PNP emitter follower, VF cancelled) with the 11 kOhm resistor from VCC to BUFOUT stated in the datasheet.
+* Not modelled (no typical value in the datasheet): input offset (3 mV max), input bias/buffer input current (0.8 uA), output impedance of the current
+* output, buffer output impedance, output voltage limits (VOM6 14 V typ, VOM8 11 V typ: checked afterwards on the simulated nodes).
+.subckt BA6110_OTA INP INN CTRL OUT BUFIN BUFOUT BIAS VCC VEE
+VCM CTRL CX 0
+QC CX CX VEE Q2SC945
+BO VEE OUT I={I(VCM)*tanh((V(INP)-V(INN))/52m)}
+EBUF BUFOUT 0 BUFIN 0 1
+RBUF BUFOUT VCC 11k
+.ends BA6110_OTA
+
+* ---- Supply rails (per schematic: b4rail/b1rail +15V,
+* b4railn -15V (supply of U3), vee=-B1* -15V (supply of U5/U6,
+* own net node per netlist) -- the CY sheet netlist itself
+* contains no local decoupling (C24/C25/R78/R79 are on another
+* sheet), hence not included here). ----
+VB4 b4rail 0 DC 15
+VB4N b4railn 0 DC -15
+VB1 b1rail 0 DC 15
+VVEE vee 0 DC -15
+* +B2/-B2 (BD sheet) and +B5*/-B5* (Master, U1): same convention as the
+* other rails (ideal +/-15V behind the 0R links of the PSU-Buss sheet)
+VB2P b2p 0 DC 15
+VB2N b2n 0 DC -15
+VB5P b5p 0 DC 15
+VB5N b5n 0 DC -15
+* +B4/-B4 (NOISE sheet, feeds Q35 noise bias/U24): same convention. Own
+* source names (VB4NOP/VB4NON), since VB4/VB4N are already used for b4rail/b4railn (CY).
+VB4NOP b4p 0 DC 15
+VB4NON b4n 0 DC -15
+* +B6/-B6 (HT sheet, U18): same convention
+VB6P b6p 0 DC 15
+VB6N b6n 0 DC -15
+* +B7/-B7 (RM sheet, U19-U21): same convention
+VB7P b7p 0 DC 15
+VB7N b7n 0 DC -15
+* +B8/-B8 (HC sheet, Q65-Q73, U22, U23): same convention
+VB8P b8p 0 DC 15
+VB8N b8n 0 DC -15
+* +B9/-B9 (PC-2 sheet, U8/U10/U11/U25/U27/U9): same convention
+VB9P b9p 0 DC 15
+VB9N b9n 0 DC -15
+
+* ---- Boundary conditions TRIG_CY/ACCENT_CY (off-sheet inputs, not
+* part of the CY sheet itself).
+* ACCENT_CY: (Yocto_v2_003beta/Dio.ino SetDacA(),
+* milliVolt=map(velocity,0,127,0,4090), confirmed by calculation from the
+* MCP4822 gain mechanism, held stable by sample & hold with a TL074 buffer);
+* 0.9*4.09V=3.681V corresponds to velocity 0.9 in the reference runs.
+* TRIG_CY: CORRECTED -- pulse width was wrongly 1ms,
+* in reality (Yocto_v2_003beta/Clock.ino:112 AND Seq.ino:509, both trigger
+* paths identical) exactly 2ms between setting and resetting the trigger bit
+* in the 74HC595 (IC112). 5V amplitude confirmed (HC series on a 5V
+* supply). ----
+Vtrigcy trig_cy_ext 0 PWL(0 0 1u 0 2u {trig_cy_amp} 2.001m {trig_cy_amp} 2.002m 0 4 0)
+Vaccentcy accent_cy_ext 0 DC 3.681
+* TRIG_BD: same 74HC595 path, 5V/2ms; ACCENT_BD as ACCENT_CY (DAC A, 0.9 -> 3.681V)
+Vtrigbd trig_bd 0 PWL(0 0 {bd_tdelay} 0 {bd_tdelay+1u} {trig_bd_amp} {bd_tdelay+bd_twidth+1u} {trig_bd_amp} {bd_tdelay+bd_twidth+2u} 0 4 0)
+Vaccentbd accent_bd 0 DC 3.681
+* TRIG_SD: same 74HC595 path, 5V/2ms; ACCENT_SD as ACCENT_CY/BD (DAC A, 0.9 -> 3.681V)
+Vtrigsd trig_sd 0 PWL(0 0 {sd_tdelay} 0 {sd_tdelay+1u} {trig_sd_amp} {sd_tdelay+sd_twidth+1u} {trig_sd_amp} {sd_tdelay+sd_twidth+2u} 0 4 0)
+Vaccentsd accent_sd 0 DC 3.681
+* TRIG_LT/MT/HT: 74HC595 path, 5V/2ms; ACCENT_* = 3.681V like the other voices
+Vtriglt trig_lt 0 PWL(0 0 {lt_tdelay} 0 {lt_tdelay+1u} {trig_lt_amp} {lt_tdelay+lt_twidth+1u} {trig_lt_amp} {lt_tdelay+lt_twidth+2u} 0 4 0)
+Vaccentlt accent_lt 0 DC 3.681
+Vtrigmt trig_mt 0 PWL(0 0 {mt_tdelay} 0 {mt_tdelay+1u} {trig_mt_amp} {mt_tdelay+mt_twidth+1u} {trig_mt_amp} {mt_tdelay+mt_twidth+2u} 0 4 0)
+Vaccentmt accent_mt 0 DC 3.681
+Vtright trig_ht 0 PWL(0 0 {ht_tdelay} 0 {ht_tdelay+1u} {trig_ht_amp} {ht_tdelay+ht_twidth+1u} {trig_ht_amp} {ht_tdelay+ht_twidth+2u} 0 4 0)
+Vaccentht accent_ht 0 DC 3.681
+* TRIG_RM: 74HC595 path, 5V/2ms; ACCENT_RM = 3.681V like the other voices
+Vtrigrm trig_rm 0 PWL(0 0 {rm_tdelay} 0 {rm_tdelay+1u} {trig_rm_amp} {rm_tdelay+rm_twidth+1u} {trig_rm_amp} {rm_tdelay+rm_twidth+2u} 0 4 0)
+Vaccentrm accent_rm 0 DC 3.681
+* TRIG_HC: 74HC595 path, 5V/2ms; ACCENT_HC = 3.681V like the other voices
+Vtrighc trig_hc 0 PWL(0 0 {hc_tdelay} 0 {hc_tdelay+1u} {trig_hc_amp} {hc_tdelay+hc_twidth+1u} {trig_hc_amp} {hc_tdelay+hc_twidth+2u} 0 4 0)
+Vaccenthc accent_hc 0 DC 3.681
+* TRIG_CB: 74HC595 path, 5V/2ms; ACCENT_CB = 3.681V like the other voices
+Vtrigcb trig_cb 0 PWL(0 0 {cb_tdelay} 0 {cb_tdelay+1u} {trig_cb_amp} {cb_tdelay+cb_twidth+1u} {trig_cb_amp} {cb_tdelay+cb_twidth+2u} 0 4 0)
+Vaccentcb accent_cb 0 DC 3.681
+* TRIG_PC2: 74HC595 path, 5V/2ms; ACCENT_PC2 = 3.681V like the other voices
+Vtrigpc2 trig_pc2 0 PWL(0 0 {pc2_tdelay} 0 {pc2_tdelay+1u} {trig_pc2_amp} {pc2_tdelay+pc2_twidth+1u} {trig_pc2_amp} {pc2_tdelay+pc2_twidth+2u} 0 4 0)
+Vaccentpc2 accent_pc2 0 DC 3.681
+
+* ==== Block 1: trigger front end Q2/Q6/Q19 ====
+R3 trig_cy_ext n517 22k
+R6 n517 0 10k
+Q2 n519 n517 0 Q2SC945
+R10 n519 n516 4.7k
+R15 n516 accent_cy_ext 4.7k
+Q6 n515 n516 accent_cy_ext Q2SA733
+R83 n515 0 22k
+R84 n515 q19base 10k
+Q19 q19coll q19base q19emit Q2SC945
+R85 q19coll b85mid 100
+R86 b85mid b1rail 100
+C35 b85mid 0 47u
+
+* ==== Block 1: VDD4 regulator Q9/R60/R61/C12 (R60 fix: base n311 -> GND) ====
+R61 b4rail n311 10k
+R60 n311 0 5.6k
+Q9 b4rail n311 vdd4 Q2SC945
+C12 vdd4 0 100u
+* Rload4: U4's supply current from vdd4, derived from the onsemi
+* MC14584B datasheet Rev.10 (IT = 1.8uA/kHz*f + IDD at VDD=5V, note 5
+* for CL<>50pF: IT(CL)=IT(50pF)+(CL-50)*V*f*k, k=0.001), applied
+* per gate with the oscillator frequencies already measured (
+* 500-900Hz, independent of VDD since it is a pure threshold ratio) and
+* the real timing capacitors C1-C6 (10-22nF, NOT the 50pF test
+* condition) instead of the negligible pure IDD quiescent-current
+* order of magnitude (0.0005-0.0015uA). Sum over all 6 gates =
+* 308.76uA at V=5V/CL=Cx -> R=V/I=15.5k as substitute load, NO free
+* fit, directly from the datasheet formula + already measured values.
+* Without this load U4 draws no current at all from vdd4 in this model
+* (Bout is an ideal voltage source, see the SCHMITT4584 subckt) -- Q9 would
+* have nothing to regulate and vdd4 would stay at any arbitrary initial
+* value (even a wrong one).
+Rload4 vdd4 0 15.5k
+
+* ==== Block 2: CD4584 hex oscillator (U4 gates A-F) ====
+* Gate C (R40=560k/C1=18n)
+Xu4c n_c osc_c vdd4 0 SCHMITT4584
+C1 n_c 0 18n
+R40 osc_c n_c 560k
+
+* Gate B (R41=560k/C2=10n)
+Xu4b n_b osc_b vdd4 0 SCHMITT4584
+C2 n_b 0 10n
+R41 n_b osc_b 560k
+
+* Gate A (R42=680k/C3=10n)
+Xu4a n_a osc_a vdd4 0 SCHMITT4584
+C3 n_a 0 10n
+R42 osc_a n_a 680k
+
+* Gate D (R43=220k/C4=18n)
+Xu4d n_d osc_d vdd4 0 SCHMITT4584
+C4 n_d 0 18n
+R43 osc_d n_d 220k
+
+* Gate E (trimmed: osc_e -> R45=100k -> n308 -> TM2 rheostat (S->E,
+* 0..220k depending on tm2_pos, A pin unused per netlist) -> n_e,
+* C5=18n at n_e). tm2_pos = factory-alignment trimmer position, not yet
+* determined (placeholder 0.5).
+* tm2_pos CORRECTED: real factory-alignment calibration from
+* "Yocto v2.0 Building Manual.pdf" p.23 ("Cowbell oscillator frequency:
+* Set TM2* to get 588Hz at TP7" -- label in the manual is misleading,
+* TP7 is unambiguously osc_e/gate E on the CY sheet per the netlist).
+* Back-calculated from f=2.0699/(RC) (corrected
+* thresholds): tm2_pos=0.4344, cross-checked by SPICE: 588.2Hz (target
+* 588Hz, <0.1% deviation). Replaces the earlier placeholder 0.5.
+* CORRECTED AGAIN (HiHat session 2026-09-14): 588.2Hz was
+* Yocto's OWN building-manual calibration (for the Yocto target device), not
+* necessarily the frequency of the real TR-808 reference unit (serial 103852)
+* whose recordings serve as the listening reference. Log-frequency-shift
+* cross-correlation (bias-free, no combination model)
+* on TWO independent HiHat signals (OH/CH, both fed from this shared
+* oscillator bank) showed consistently: SPICE was +7.4% (OH) and
+* +3.2% (CH) too high. -5% on TM1 AND TM2 together lowered both to
+* <0.2% residual deviation AND improved the absolute correlation (OH:
+* 0.478->0.508, CH: 0.578->0.637) -- both trimmers in the same direction,
+* both independent voices confirm the same amount: not a random
+* fit. tm2_pos=0.4809 -> 558.79Hz (target 558.8Hz, <0.01% deviation).
+.param tm2_pos=0.4809
+Xu4e n_e osc_e vdd4 0 SCHMITT4584
+C5 n_e 0 18n
+R45 osc_e n308 100k
+Rtm2 n308 n_e {220k*tm2_pos}
+
+* Gate F (trimmed: osc_f -> R44=150k -> n309 -> TM1 rheostat (S->E,
+* 0..220k depending on tm1_pos) -> n_f, C6=22n at n_f).
+* tm1_pos CORRECTED: real factory-alignment calibration from
+* "Yocto v2.0 Building Manual.pdf" p.23 ("Cowbell oscillator frequency:
+* Set TM1* to get 390Hz at TP6" -- label in the manual is misleading, TP6
+* is unambiguously osc_f/gate F on the CY sheet per the netlist).
+* Back-calculated from f=2.0699/(RC): tm1_pos=0.4148, cross-checked by
+* SPICE: 389.9Hz (target 390Hz, <0.1% deviation). Replaces the earlier
+* placeholder 0.5.
+* CORRECTED AGAIN (HiHat session 2026-09-14): see the detailed
+* reasoning at tm2_pos above -- the same -5% correction, confirmed by the
+* same two independent OH/CH measurements.
+* tm1_pos=0.4728 -> 370.40Hz (target 370.4Hz, exact).
+* CALIBRATED TO THE YOCTO2 RECORDINGS (2026-10-03): C6 = 10n instead of 22n (schematic/board say 22n), tm1_pos=0.4132.
+* Finding: the reference recordings show the upper cowbell line at about 859 Hz (gate F); with 22n and the schematic's part values
+* 859 Hz is not reachable (370 Hz). C6 10n + TM1 0.4132 -> 859 Hz (calculation from 857.91 Hz at 0.4146). Gate E (558.8 Hz) fits unchanged.
+* Cross-check CY/OH/CH (shift correlation against the Yocto2 recordings, mean, at s=1): CY 0.527 -> 0.722, OH 0.465 -> 0.630, CH 0.656 -> 0.778 (48 kHz).
+.param tm1_pos=0.4132
+Xu4f n_f osc_f vdd4 0 SCHMITT4584
+C6 n_f 0 10n
+R44 osc_f n309 150k
+Rtm1 n309 n_f {220k*tm1_pos}
+
+* ==== Block 3: summing of the 6 oscillators -> vsumnode ====
+R35 osc_c vsumnode 120k
+R37 osc_b vsumnode 120k
+R39 osc_a vsumnode 120k
+R46 osc_d vsumnode 120k
+R48 osc_e vsumnode 120k
+R50 osc_f vsumnode 120k
+R53 vsumnode 0 1k
+
+* ==== Block 4: EG#1.1/EG#1.2 ====
+D8 q19emit c41node D1N4148
+* C41 (EG#1.1 decay capacitor of the cymbal) = 1.2u, SCHEMATIC 1u: calibrated to the Yocto2 recordings CY-1..CY-20 (2026-10-04). NGSpice at decay pot maximum / tone 1.0: t-20 dB / t-40 dB = 1315 / 2220 ms with 1u,
+* 1960 / 3295 ms with 1.5u (proportional to C41); the longest recording (CY-20) has 1585 / 2950 ms -> 1.2u (E12 value, ~1580 / 2660 ms).
+C41 c41node 0 1.2u
+* VR2 (2MB): per netlist A=GND, E+S bridged to the same node
+* (true rheostat, not a voltage divider) -- decay_knob = user decay knob position, not yet
+* backed by a concrete target value (placeholder 0.5).
+.param decay_knob=0.5
+R93 c41node vr2wiper 470k
+Rvr2 vr2wiper 0 {2Meg*decay_knob}
+Q20 b1rail c41node q20emit Q2SC945
+R105 q20emit c45node 33k
+C45 c45node 0 2.2u
+R104 c45node d12a 22k
+D12 d12a d12k D1N4148
+
+* ==== Block 5: EG#2, EG#3, EG#1.3-Tap ====
+D7 q19emit c40node D1N4148
+C40 c40node 0 1u
+R88 c40node c39node 33k
+C39 c39node 0 0.47u
+
+D6 q19emit c38node D1N4148
+C38 c38node 0 1u
+R87 c38node c37node 22k
+C37 c37node 0 2.2u
+
+R92 q20emit eg13node 33k
+R89 eg13node 0 10k
+
+* ==== Block 6: BP1 (U3-A), BP2 (U3-B) ====
+* C10/C11 were deferred in block 3 (they hang on vsumnode but already
+* lead into the BP1/BP2 input) -- connected here now.
+C10 vsumnode a1 3.3n
+R52 a1 s1 33k
+C13 s1 m1 6.8n
+C14 m1 bp1out 6.8n
+R56 m1 0 560
+R57 s1 bp1out 82k
+Xu3a 0 s1 bp1out b4rail b4railn UPC4558_V3
+
+C11 vsumnode a2 1n
+R55 a2 s2 22k
+C15 s2 m2 3.3n
+C16 m2 bp2out 3.3n
+R58 m2 0 560
+R59 s2 bp2out 82k
+Xu3b 0 s2 bp2out b4rail b4railn UPC4558_V3
+
+* ==== Block 7: VCA1 (Q18), VCA2 (Q17), VCA3 (Q16) ====
+* VCA1: per netlist the Q18 collector is the same node as D12's
+* cathode (block 4) -- d12k, no separate connection node.
+R102 b1rail vca1bias 1e6
+R103 vca1bias q18base 1e6
+C46 bp1out q18base 22n
+Q18 d12k q18base q18emit Q2SC945
+R101 q18emit 0 100
+
+* VCA2: Q17 collector = D11 cathode (d11k), R90/R91 load eg13node AND
+* c39node (from block 5) onto the same node d11a.
+R100 b1rail vca2bias 1e6
+R99 vca2bias q17base 1e6
+C44 bp2out q17base 22n
+Q17 d11k q17base q17emit Q2SC945
+R98 q17emit 0 100
+R90 c39node d11a 33k
+R91 eg13node d11a 33k
+D11 d11a d11k D1N4148
+C43 d11k 0 1.5n
+C50 d11a 0 1.5n
+
+* VCA3: Q16 collector = D5 cathode (d5k).
+R96 b1rail vca3bias 1e6
+R97 vca3bias q16base 1e6
+C42 bp2out q16base 22n
+Q16 d5k q16base q16emit Q2SC945
+R95 q16emit 0 100
+R94 c38node d5a 39k
+D5 d5a d5k D1N4148
+C36 d5k 0 1.5n
+C47 d5a 0 1.5n
+
+* ==== Block 8: U5-A (Band3), U5-B (Band2) ====
+C49 d5a n530 3.3n
+R106 n530 0 6.8k
+C53 n530 n534 1n
+C54 n534 u5ap 1n
+R109 u5ap 0 18k
+R108 n534 u5aout 18k
+R110 u5aout u5ainv 39k
+R111 u5ainv 0 22k
+Xu5a u5ap u5ainv u5aout b1rail vee UPC4558_V3
+
+C51 d11a n540 1n
+C52 n540 u5bp 1n
+R113 u5bp 0 18k
+R107 n540 u5bout 18k
+R114 u5bout u5binv 39k
+R115 u5binv 0 39k
+Xu5b u5bp u5binv u5bout b1rail vee UPC4558_V3
+
+* ==== Block 9: band 1 buffer (Q25), mesh, U6-A (terminated), U6-B (CY_OUT) ====
+C48 d12a nodex 1.5n
+C59 nodex q25base 1.5n
+R127 q25base 0 82k
+Q25 b1rail q25base q25emit Q2SC945
+C58 q25emit r123node 10n
+R123 r123node r121node 100k
+R121 r121node meshx1 10k
+C57 r121node 0 3.3n
+R124 nodex q25emit 22k
+R126 q25emit vee 22k
+
+C56 u5bout n120node 10n
+R120 n120node meshx1 10k
+C55 u5aout n112node 10n
+R112 n112node meshx2 22k
+R129 meshx1 meshx3 15k
+R119 meshx2 meshx3 22k
+* VR4 (20KB, 3-terminal divider, wiper=S=GND): modelled as two resistors
+* A->GND and E->GND (each the share of the track on the respective side of
+* the wiper), .param instead of fixed 0.5.
+.param tone_knob=0.5
+R125 meshx1 vr4e 2.2k
+RvR4e_internal vr4e 0 {20k*tone_knob}
+RvR4a meshx2 0 {20k*(1-tone_knob)}
+
+* U6-A: unused, correctly terminated op-amp half (
+* +IN=GND, -IN=OUT as voltage follower) -- no signal path.
+Xu6a 0 n481 n481 b1rail vee UPC4558_V3
+
+* U6-B: last real amplifier stage before CY_OUT.
+C90 meshx3 u6bn 10n
+R118 u6bp 0 47k
+R128 u6bout u6bn 470k
+C77 u6bout u6bn 220p
+* VR6 (100KA) as rheostat: A=u6bout, E+S bridged (u6bm). "100KA" means
+* taper A (logarithmic/audio). The manufacturer of the pot is not documented
+* (the kit's front-panel pots are bundled separately, not on the public BOM),
+* so the curve is a representative one: the 15A (JIS.A) curve of the
+* Song Huei R0903N, whose footprint (2.5mm pin pitch) matches the Yocto board
+* exactly. Eleven points read from the manufacturer's taper sheet
+* (0/10/.../100% rotation -> 0/1/2.5/5.5/10.5/16/26/40/65/93/100% resistance),
+* used as piecewise linear interpolation, not a functional fit. The Bourns
+* PTV "A" curve (15% at 50% rotation) and a TT Electronics curve bracket it
+* from both sides, i.e. three independent sources converge. The individual
+* curve of the original part is not available; it is treated as part
+* tolerance of the A-taper class (up to 4.52dB, ~68%, at vr6_pos<=0.2,
+* <1dB at vr6_pos>=0.5). The real knob position is unknown (VR6 is a
+* front-panel control, not a factory-alignment trimmer), so
+* vr6_pos=0.5 remains the only sensible model value.
+.param vr6_pos=0.5
+.param vr6frac = {
++ (vr6_pos<=0.1) ? (0.0    + (vr6_pos-0.0)/0.1*(0.01-0.0))    :
++ (vr6_pos<=0.2) ? (0.01   + (vr6_pos-0.1)/0.1*(0.025-0.01))  :
++ (vr6_pos<=0.3) ? (0.025  + (vr6_pos-0.2)/0.1*(0.055-0.025)) :
++ (vr6_pos<=0.4) ? (0.055  + (vr6_pos-0.3)/0.1*(0.105-0.055)) :
++ (vr6_pos<=0.5) ? (0.105  + (vr6_pos-0.4)/0.1*(0.16-0.105))  :
++ (vr6_pos<=0.6) ? (0.16   + (vr6_pos-0.5)/0.1*(0.26-0.16))   :
++ (vr6_pos<=0.7) ? (0.26   + (vr6_pos-0.6)/0.1*(0.40-0.26))   :
++ (vr6_pos<=0.8) ? (0.40   + (vr6_pos-0.7)/0.1*(0.65-0.40))   :
++ (vr6_pos<=0.9) ? (0.65   + (vr6_pos-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (vr6_pos-0.9)/0.1*(1.0-0.93))    }
+Rvr6 u6bout u6bm {100k*vr6frac}
+C78 u6bm u6bn 33u
+Xu6b u6bp u6bn u6bout b1rail vee UPC4558_V3
+* R166: last real output resistor before connector J4
+* (CY_OUT).
+R166 u6bout cy_out 1k
+
+* ==== HiHat (sheet HH): OH/CH, verbatim from hihat_rebuild/hihat_both_4s.cir (trigger amplitudes as parameters) ====
+* =====================================================================
+* POT3 subckt removed (2026-09-14): it was faulty, "C" is the
+* housing ground lug of the pot (symbol POT_GND, a circle icon), NOT
+* the third electrical resistance terminal (the real 3-terminal
+* resistor has only A/E/S, symbol POT_EU-). E and S are tied to the same node
+* in the schematic -> pure rheostat A->wiper, no ground path through the pot itself.
+
+Vb3p b3p 0 DC 15
+Vb3n b3n 0 DC -15
+
+* Boundary conditions TRIG_OH/TRIG_CH/ACCENT_OH/ACCENT_CH -- now REALLY
+* derived, no longer taken over from CY:
+*
+* TRIG: IC112 (74*595, sheet 0) is a 16-bit shift register (2x74HC595
+* cascaded), QA=TRIG_CY, QB=TRIG_OH, QC=TRIG_CH, QD=TRIG_PC2 --
+* verified by net search. define.h: CY=bit8, OH=bit9, CH=bit10 (matches
+* QA/QB/QC of the high byte exactly). Clock.ino: SetDoutTrig(stepValue)
+* writes ALL bits (incl. OH/CH) in ONE SPI transfer, then ALWAYS
+* `delayMicroseconds(2000)` (firmware source line, not interpreted),
+* then ResetDoutTrig() resets all bits together -- TRIG_OH and
+* TRIG_CH therefore PROVABLY (not assumed) have the same 2ms/5V
+* pulse shape as TRIG_CY, because of the identical shift-register
+* latch mechanism. Fired here SEPARATELY each (not simultaneously) for
+* separate OH/CH reference runs.
+*
+* ACCENT: IC110 (TL074, sheet 0) -- per the netlist ACCENT_OH and ACCENT_CH are
+* the SAME electrical connection (both at IC110 -IN/OUT) --
+* OH and CH share ONE sample & hold accent voltage (Clock.ino:
+* SetMux()/SetDacA() is called once per step for the currently active
+* instrument, DAC channel A as with CY). Modelled here with
+* the same value 3.681V (=0.9 velocity)
+* on BOTH nets -- no fitting, same derivation as
+* ACCENT_CY.
+Vtrigoh_hh trig_oh 0 PWL(0 0 1u 0 2u {trig_oh_amp} 2.001m {trig_oh_amp} 2.002m 0 4 0)
+Vtrigch_hh trig_ch 0 PWL(0 0 1u 0 2u {trig_ch_amp} 2.001m {trig_ch_amp} 2.002m 0 4 0)
+Vaccoh_hh accent_oh 0 DC 3.681
+Vaccch_hh accent_ch 0 DC 3.681
+
+RH1  n566 trig_oh   22k
+RH8  0 n566         10k
+QH3  n568 n566 0    Q2SC945
+RH12 n568 n567      22k
+QH7  n569 n567 accent_oh  Q2SA733
+RH17 n567 accent_oh 4.7k
+RH2  n559 trig_ch   22k
+RH7  0 n559         10k
+QH4  n562 n559 0    Q2SC945
+RH11 n562 n560      22k
+QH8  n563 n560 accent_ch  Q2SA733
+RH16 n560 accent_ch 4.7k
+RH13 0 n563          22k
+RH130 0 n331     10k
+RH131 n331 n569  22k
+QH21  n576 n331 0  Q2SC945
+Rvr3  b3p n360 1Meg
+RH132 n576 n360  100k
+RH133 n575 n576  10k
+QH22  n574 n575 0  Q2SC945
+QH23  n574 n580 0  Q2SC945
+RH173 n580 n581  330k
+CH60  n576 0     10u
+RH134 n574 n573  100k
+RH135 n572 n569   10k
+QH24  n571 n572 n573  Q2SC945
+* CH62 (OH decay storage) = 0.82u, SCHEMATIC 0.47u: calibrated to the Yocto2 recordings OH-1..OH-7 (2026-10-04). With 0.47u the decay time saturates at 375 ms (t-20 dB) and the envelope sags;
+* the recordings reach 595 ms with a plateau and a steep end. 0.82u (standard value): Rvr3 2.1M -> 620 ms, plateau of OH-4..OH-7 within 1.4-2.2 dB.
+CH62  n573 0      0.82u
+RH139 n573 0      1Meg
+RH140 n573 n334   33k
+RH137 n571 n577   470
+RH136 n577 b3p    100
+CH61  n577 0      47u
+RH138 n577 n579   470
+QH28  n579 n578 n581  Q2SC945
+RH141 n563 n578   33k
+* CH63 (CH decay storage) = 0.56u, SCHEMATIC 0.47u: calibrated to the Yocto2 recordings CH-1/CH-2 (2026-10-04); the closed hat fell 3-4.5 dB faster than the recordings between 30 and 110 ms.
+CH63  n581 0      0.56u
+RH142 n581 n350   33k
+QH29  b3p n334 n582   Q2SC945
+RH143 n582 0      33k
+RH144 n582 n349   33k
+CH67  bp2out n586  22n
+QH27  n588 n586 n584  Q2SC945
+RH145 n584 0      100
+DH13  n349 n588   D1N4148
+CH64  n349 0      1.5n
+CH65  n588 0      1.5n
+CH66  n349 n589   1.5n
+CH68  n589 n591   1.5n
+RH147 n589 n335   2.7k
+RH146 n591 0      68k
+QH26  b3p n591 n335  Q2SC945
+CH80  n335 n321   470p
+RH156 n335 b3n    22k
+RH160 n321 n322   39k
+XU7A  n358 n322 n323 b3p b3n UPC4558_V3
+RH158 0 n358      47k
+RH159 n322 n323   470k
+CH79  n322 n323   220p
+Rvr7  n323 n342 100k
+CH81  n342 n322  33u
+RH169 n323 oh_out 1k
+RH149 n346 n586   1Meg
+RH148 b3p n346    1Meg
+QH30  n315 n585 n583  Q2SC945
+RH152 n583 0      100
+RH150 n356 n585   1Meg
+RH151 b3p n356    1Meg
+CH71  bp2out n585  22n
+QH31  b3p n316 n341  Q2SC945
+RH155 n316 0      68k
+DH14  n350 n315   D1N4148
+CH69  n350 0      1.5n
+CH70  n315 0      1.5n
+CH72  n350 n590   1n
+CH73  n590 n316   1n
+RH153 n590 n341   2.7k
+RH154 n341 b3n    22k
+CH74  n341 n320   470p
+RH162 n320 n325   33k
+XU7B  n359 n325 n327 b3p b3n UPC4558_V3
+RH157 0 n359      47k
+RH161 n325 n327   470k
+CH82  n325 n327   220p
+Rvr8  n327 n375 100k
+CH83  n375 n325  33u
+RH172 n327 ch_out 1k
+
+* ==== BD (sheet BD): trigger front end, pulse shaper, bridged-T (U12A/U12B), tone/level, follower Q44 ====
+* trigger frontend
+R152_bd trig_bd bd_n70 22k
+R153_bd bd_n70 0 10k
+Q39_bd bd_n48 bd_n70 0 Q2SC945
+R154_bd bd_n48 bd_n47 10k
+R155_bd bd_n47 accent_bd 4.7k
+Q40_bd bd_n50 bd_n47 accent_bd Q2SA733
+* differentiator into U12A + pulse shaper
+C40_bd bd_n50 bd_n51 15n
+R163_bd bd_n50 bd_n51 100k
+R162_bd bd_n51 0 4.7k
+D53_bd 0 bd_n51 D1N4148
+R157_bd bd_n50 bd_n68 8.2k
+R158_bd bd_n68 0 2.7k
+Q41_bd bd_n46 bd_n68 0 Q2SC945
+R156_bd b2p bd_n46 1Meg
+C38_bd bd_n46 0 100n
+Q42_bd bd_n49 bd_n46 0 Q2SC945
+R160_bd b2p bd_n49 22k
+R159_bd bd_n49 bd_n52 100k
+Q43_bd bd_n69 bd_n52 0 Q2SC945
+C39_bd bd_n49 bd_n65 33n
+D52_bd bd_n65 0 D1N4148
+R161_bd bd_n65 bd_n53 1Meg
+R165_bd bd_n69 0 47k
+R166_bd bd_n69 bd_n53 6.8k
+* resonator (bridged-T, U12A / U12B)
+C41_bd bd_n53 bd_n54 15n
+C42_bd bd_n53 bd_n55 15n
+R167_bd bd_n54 bd_n55 1Meg
+XU12A_bd bd_n51 bd_n54 bd_n55 b2p b2n UPC4558_V3
+R170_bd bd_n53 bd_n59 470k
+R164_bd bd_n55 bd_n58 47k
+R169_bd bd_n58 bd_n59 47k
+R168_bd bd_n67 0 22k
+XU12B_bd bd_n67 bd_n58 bd_n59 b2p b2n UPC4558_V3
+* VR6 (500K, rheostat A->S, E open) in series with C43 (+ at wiper)
+Rvr6_bd bd_n58 bd_n66 {max(500k*bd_vr6,1)}
+C43_bd bd_n66 bd_n59 33u
+* tone: R171/R172 || VR5 (10K, A=S shorted, rheostat S->E), C45
+R171_bd bd_n55 bd_n57 220
+R172_bd bd_n57 bd_n56 10k
+Rvr5_bd bd_n57 bd_n56 {max(10k*bd_vr5,1)}
+C45_bd bd_n56 0 100n
+* level: C47 -> VR4 (100K, A=GND, E=n63, wiper n64) -> C49 -> Q44 follower
+C47_bd bd_n63 bd_n56 0.47u
+Rvr4a_bd bd_n63 bd_n64 {max(100k*(1-bd_vr4),1)}
+Rvr4b_bd bd_n64 0 {max(100k*bd_vr4,1)}
+C49_bd bd_n64 bd_c1 0.47u
+R177_bd bd_c1 bd_n60 82k
+R176_bd bd_n60 0 100k
+Q44_bd b2p bd_n60 bd_n61 Q2SC945
+R173_bd bd_n61 b2n 6.8k
+C48_bd bd_n61 0 220p
+C50_bd bd_n61 bd_n62 1u
+R174_bd bd_n62 0 100k
+R175_bd bd_n62 bd_out 1k
+
+* ==== NOISE (Sheet NOISE, shared block -- feeds SD via WN) ====
+* Q35: B-E junction reverse breakdown physically modeled (D2SC828EB, model block above --
+* Bv/Ibv from the verified 2SC828 datasheet). Noise AMPLITUDE (VNOQ35NOISE, TRNOISE) is an
+* explicit, NOT hardware-verified placeholder -- open point.
+CNO29 no_n492 0 47u
+CNO31 no_n491 no_n362 1u
+CNO32 no_n493 pn 39n
+CNO33 no_n494 0 18n
+CNO35 no_n361 0 10u
+CNO202 no_n489 wn 22p
+DNOQ35EB 0 no_Q35_ebpre D2SC828EB
+VNOQ35NOISE no_Q35_ebpre no_n491 DC 0 TRNOISE(12m 1.7u 0 0)
+RNO124 no_n492 b4p 100
+RNO128 no_n491 no_n492 1meg
+RNO130 wn no_n489 1meg
+RNO131 no_n362 0 100k
+RNO132 no_n493 no_n494 22k
+RNO133 wn no_n493 22k
+* TM4 trimmer 22KB (fixed factory-set, midpoint assumed)
+RNOTM4 no_n361 no_n489 11000
+XNOU24A no_n362 no_n489 wn b4p b4n UPC4558_V3
+XNOU24B no_n494 pn pn b4p b4n UPC4558_V3
+
+* ==== SD (Sheet SD) ====
+* Pot taper SHAPE resolved: VR7=Taper A (JIS.A curve, reused from CY's verified VR6),
+* VR8/VR9=Taper B (linear). Rotation DIRECTION unconfirmed.
+CSD51 sd_n44 0 .47u
+CSD52 sd_n39 0 100n
+CSD53 sd_n45 0 1n
+CSD54 sd_n75 0 2.7n
+CSD55 sd_n43 0 47u
+CSD56 sd_n76 wn 22n
+CSD57 sd_n29 sd_n28 6.8n
+* Bridged-T resonators as in the Yocto v2.007 schematic: C58/C59 = 27n, C60/C61 = 6.8n -> 249.6 / 499.0 Hz (f = 1/(2 pi C sqrt(Rs Rb))); the Yocto2 SD recordings ring at 243 / 495 Hz.
+CSD58 sd_n30 sd_n32 27n
+CSD59 sd_n32 sd_n31 27n
+CSD60 sd_n160 sd_n34 6.8n
+CSD61 sd_n34 sd_n33 6.8n
+CSD63 sd_n31 sd_n36 47n
+CSD65 sd_n37 sd_n81 47n
+CSD66 sd_n45 sd_n71 1.8n
+CSD67 sd_n71 sd_n72 1.8n
+CSD68 sd_n129 sd_n159 33u
+CSD69 sd_n73 sd_n79 10n
+CSD70 sd_n78 sd_n129 220p
+DSD54 sd_n45 sd_n75 D1N4148
+* SKIPPED M3 (NC) -- G$1 pins not wired on this sheet (unused pot)
+* SKIPPED M4 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QSD45 sd_n27 sd_n25 0 Q2SC945
+QSD46 sd_n29 sd_n26 accent_sd Q2SA733
+QSD47 sd_n42 sd_n41 sd_n44 Q2SC945
+QSD48 sd_n75 sd_n76 sd_n74 Q2SC945
+QSD49 b3p sd_n72 sd_n73 Q2SC945
+RSD180 sd_n25 trig_sd 22k
+RSD181 0 sd_n25 10k
+RSD182 sd_n27 sd_n26 10k
+RSD183 sd_n26 accent_sd 4.7k
+RSD184 sd_n44 sd_n39 15k
+RSD185 sd_n39 sd_n45 15k
+RSD186 sd_n40 sd_n41 33k
+RSD187 sd_n42 sd_n43 330
+RSD188 0 sd_n74 100
+RSD189 sd_n29 sd_n28 100k
+RSD190 0 sd_n28 680
+RSD191 sd_n35 sd_n29 8.2k
+RSD192 0 sd_n35 220
+RSD193 sd_n43 b3p 100
+RSD194 sd_n76 b3p 2.2meg
+RSD195 sd_n34 0 2.2k
+RSD196 0 sd_n32 680
+RSD197 sd_n30 sd_n31 820k
+RSD198 sd_n160 sd_n33 1meg
+RSD199 0 sd_n38 1k
+RSD200 sd_n37 sd_n33 47k
+RSD201 sd_n73 sd_n71 22k
+RSD202 0 sd_n72 47k
+RSD203 b3n sd_n73 22k
+RSD204 sd_n78 sd_n77 100k
+RSD205 sd_n79 sd_n78 27k
+RSD206 0 sd_n80 47k
+RSD207 sd_n129 sd_out 1k
+RSD210 sd_n78 sd_n129 470k
+XSDU13A sd_n80 sd_n78 sd_n129 b3p b3n UPC4558_V3
+XSDU14A sd_n28 sd_n30 sd_n31 b3p b3n UPC4558_V3
+XSDU14B sd_n35 sd_n160 sd_n33 b3p b3n UPC4558_V3
+* VR7 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param sd_VR7frac = {
++ (sd_vr7<=0.1) ? (0.0    + (sd_vr7-0.0)/0.1*(0.01-0.0))    :
++ (sd_vr7<=0.2) ? (0.01   + (sd_vr7-0.1)/0.1*(0.025-0.01))  :
++ (sd_vr7<=0.3) ? (0.025  + (sd_vr7-0.2)/0.1*(0.055-0.025)) :
++ (sd_vr7<=0.4) ? (0.055  + (sd_vr7-0.3)/0.1*(0.105-0.055)) :
++ (sd_vr7<=0.5) ? (0.105  + (sd_vr7-0.4)/0.1*(0.16-0.105))  :
++ (sd_vr7<=0.6) ? (0.16   + (sd_vr7-0.5)/0.1*(0.26-0.16))   :
++ (sd_vr7<=0.7) ? (0.26   + (sd_vr7-0.6)/0.1*(0.40-0.26))   :
++ (sd_vr7<=0.8) ? (0.40   + (sd_vr7-0.7)/0.1*(0.65-0.40))   :
++ (sd_vr7<=0.9) ? (0.65   + (sd_vr7-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (sd_vr7-0.9)/0.1*(1.0-0.93))    }
+RSDVR7as sd_n78 sd_n159 {max(100000*sd_VR7frac,1)}
+* VR8 100K(B): Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param sd_VR8frac = {sd_vr8}
+RSDVR8as sd_n36 sd_n77 {max(100000*sd_VR8frac,1)}
+RSDVR8se sd_n77 sd_n81 {max(100000*(1-sd_VR8frac),1)}
+* VR9 10K(B): Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param sd_VR9frac = {sd_vr9}
+RSDVR9as sd_n38 sd_n40 {max(10000*sd_VR9frac,1)}
+RSDVR9se sd_n40 sd_n29 {max(10000*(1-sd_VR9frac),1)}
+
+* ==== LT (Sheet LT), Tom/Conga switch SW8: lt_sw=1 -> throw O (Tom), 0 -> throw S (Conga) ====
+CLT71 lt_n267 lt_n102 47n
+CLT72 lt_n103 0 39n
+CLT73 lt_n85 lt_n87 6.8n
+CLT74 lt_n99 lt_n106 47n
+CLT75 lt_n100 0 18n
+CLT76 lt_n89 lt_n88 56n
+* loss cell of CLT76: tan delta 0.3 % (calibrated)
+RDFCLT76_0 lt_n89 dfn_CLT76_0 4.51508e+07
+CDFCLT76_0 dfn_CLT76_0 lt_n88 1.17499e-10
+RDFCLT76_1 lt_n89 dfn_CLT76_1 1.50503e+07
+CDFCLT76_1 dfn_CLT76_1 lt_n88 1.17499e-10
+RDFCLT76_2 lt_n89 dfn_CLT76_2 5.01675e+06
+CDFCLT76_2 dfn_CLT76_2 lt_n88 1.17499e-10
+RDFCLT76_3 lt_n89 dfn_CLT76_3 1.67225e+06
+CDFCLT76_3 dfn_CLT76_3 lt_n88 1.17499e-10
+RDFCLT76_4 lt_n89 dfn_CLT76_4 557417
+CDFCLT76_4 dfn_CLT76_4 lt_n88 1.17499e-10
+CLT77 lt_n90 lt_n104 47n
+* loss cell of CLT77: tan delta 0.3 % (calibrated)
+RDFCLT77_0 lt_n90 dfn_CLT77_0 5.37966e+07
+CDFCLT77_0 dfn_CLT77_0 lt_n104 9.86152e-11
+RDFCLT77_1 lt_n90 dfn_CLT77_1 1.79322e+07
+CDFCLT77_1 dfn_CLT77_1 lt_n104 9.86152e-11
+RDFCLT77_2 lt_n90 dfn_CLT77_2 5.9774e+06
+CDFCLT77_2 dfn_CLT77_2 lt_n104 9.86152e-11
+RDFCLT77_3 lt_n90 dfn_CLT77_3 1.99247e+06
+CDFCLT77_3 dfn_CLT77_3 lt_n104 9.86152e-11
+RDFCLT77_4 lt_n90 dfn_CLT77_4 664156
+CDFCLT77_4 dfn_CLT77_4 lt_n104 9.86152e-11
+CLT78 lt_n88 lt_n90 12n
+* loss cell of CLT78: tan delta 0.3 % (calibrated)
+RDFCLT78_0 lt_n88 dfn_CLT78_0 2.10704e+08
+CDFCLT78_0 dfn_CLT78_0 lt_n90 2.51783e-11
+RDFCLT78_1 lt_n88 dfn_CLT78_1 7.02345e+07
+CDFCLT78_1 dfn_CLT78_1 lt_n90 2.51783e-11
+RDFCLT78_2 lt_n88 dfn_CLT78_2 2.34115e+07
+CDFCLT78_2 dfn_CLT78_2 lt_n90 2.51783e-11
+RDFCLT78_3 lt_n88 dfn_CLT78_3 7.80383e+06
+CDFCLT78_3 dfn_CLT78_3 lt_n90 2.51783e-11
+RDFCLT78_4 lt_n88 dfn_CLT78_4 2.60128e+06
+CDFCLT78_4 dfn_CLT78_4 lt_n90 2.51783e-11
+CLT81 lt_n95 lt_n96 47n
+CLT82 lt_n98 lt_n97 33u
+CLT83 lt_n96 lt_n98 1n
+DLT55 lt_n86 lt_n103 D1N4148
+DLT56 0 lt_n87 D1N4148
+DLT80 lt_n88 lt_n91 D1N34
+DLT81 lt_n91 lt_n88 D1N34
+* SKIPPED M5 (NC) -- G$1 pins not wired on this sheet (unused pot)
+* SKIPPED M6 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QLT50 lt_n83 lt_n84 0 Q2SC945
+QLT51 lt_n85 lt_n82 accent_lt Q2SA733
+QLT52 lt_n99 lt_n101 0 Q2SC945
+RLT211 lt_n84 trig_lt 22k
+RLT212 0 lt_n84 10k
+RLT213 lt_n83 lt_n82 10k
+RLT214 lt_n82 accent_lt 4.7k
+RLT215 0 lt_n85 4.7k
+RLT216 pn lt_n102 15k
+RLT217 lt_n102 0 3.3k
+RLT218 lt_n103 lt_n267 2.2meg
+RLT219 lt_n86 lt_n85 4.7k
+RLT220 lt_n267 lt_n101 33k
+RLT221 b4p lt_n99 4.7k
+RLT222 lt_n100 lt_n106 22k
+RLT223 lt_n106 0 22k
+RLT224 lt_n111 lt_n107 1.5k
+RLT225 0 lt_n107 4.7k
+RLT226 lt_n107 lt_n87 22k
+RLT227 lt_n94 lt_n93 33k
+RLT228 lt_n90 lt_n89 820k
+RLT229 lt_n93 lt_n90 33k
+RLT230 lt_n88 lt_n94 820k
+RLT231 lt_n92 lt_n88 1k
+RLT232 lt_n95 lt_n105 100k
+RLT233 lt_n95 lt_n94 100k
+RLT234 lt_n109 0 47k
+RLT235 lt_n98 lt_n96 470k
+RLT238 lt_out lt_n98 1k
+RLTSW8AO lt_n105 lt_n100 {lt_sw>0.5 ? 1e-3 : 1e12}
+RLTSW8AS lt_n105 0 {lt_sw<0.5 ? 1e-3 : 1e12}
+RLTSW8BS lt_n111 0 {lt_sw<0.5 ? 1e-3 : 1e12}
+RLTSW8CO lt_n104 lt_n88 {lt_sw>0.5 ? 1e-3 : 1e12}
+XLTU13B lt_n109 lt_n96 lt_n98 b3p b3n UPC4558_V3
+XLTU15A 0 lt_n93 lt_n94 b4p b4n UPC4558_V3
+XLTU15B lt_n107 lt_n89 lt_n90 b4p b4n UPC4558_V3
+* VR10 100KA: Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param lt_VR10frac = {
++ (lt_vr10<=0.1) ? (0.0    + (lt_vr10-0.0)/0.1*(0.01-0.0))    :
++ (lt_vr10<=0.2) ? (0.01   + (lt_vr10-0.1)/0.1*(0.025-0.01))  :
++ (lt_vr10<=0.3) ? (0.025  + (lt_vr10-0.2)/0.1*(0.055-0.025)) :
++ (lt_vr10<=0.4) ? (0.055  + (lt_vr10-0.3)/0.1*(0.105-0.055)) :
++ (lt_vr10<=0.5) ? (0.105  + (lt_vr10-0.4)/0.1*(0.16-0.105))  :
++ (lt_vr10<=0.6) ? (0.16   + (lt_vr10-0.5)/0.1*(0.26-0.16))   :
++ (lt_vr10<=0.7) ? (0.26   + (lt_vr10-0.6)/0.1*(0.40-0.26))   :
++ (lt_vr10<=0.8) ? (0.40   + (lt_vr10-0.7)/0.1*(0.65-0.40))   :
++ (lt_vr10<=0.9) ? (0.65   + (lt_vr10-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (lt_vr10-0.9)/0.1*(1.0-0.93))    }
+RLTVR10as lt_n96 lt_n97 {max(100000*lt_VR10frac,1)}
+* VR11 500R: Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param lt_VR11frac = {lt_vr11}
+RLTVR11as lt_n91 lt_n92 {max(500*lt_VR11frac,1)}
+RLTVR11se lt_n92 0 {max(500*(1-lt_VR11frac),1)}
+
+* ==== MT (Sheet MT), Tom/Conga switch SW9: mt_sw=1 -> throw O (Tom), 0 -> throw S (Conga) ====
+CMT84 mt_n132 mt_n131 47n
+CMT85 mt_n133 0 33n
+CMT86 mt_n113 mt_n115 2.7n
+CMT87 mt_n127 mt_n136 33n
+CMT88 mt_n128 0 15n
+CMT89 mt_n140 mt_n117 8.2n
+CMT90 mt_n117 mt_n116 27n
+* loss cell of CMT90: tan delta 0.3 % (calibrated)
+RDFCMT90_0 mt_n117 dfn_CMT90_0 9.3646e+07
+CDFCMT90_0 dfn_CMT90_0 mt_n116 5.66513e-11
+RDFCMT90_1 mt_n117 dfn_CMT90_1 3.12153e+07
+CDFCMT90_1 dfn_CMT90_1 mt_n116 5.66513e-11
+RDFCMT90_2 mt_n117 dfn_CMT90_2 1.04051e+07
+CDFCMT90_2 dfn_CMT90_2 mt_n116 5.66513e-11
+RDFCMT90_3 mt_n117 dfn_CMT90_3 3.46837e+06
+CDFCMT90_3 dfn_CMT90_3 mt_n116 5.66513e-11
+RDFCMT90_4 mt_n117 dfn_CMT90_4 1.15612e+06
+CDFCMT90_4 dfn_CMT90_4 mt_n116 5.66513e-11
+CMT91 mt_n118 mt_n134 27n
+* loss cell of CMT91: tan delta 0.3 % (calibrated)
+RDFCMT91_0 mt_n118 dfn_CMT91_0 9.3646e+07
+CDFCMT91_0 dfn_CMT91_0 mt_n134 5.66513e-11
+RDFCMT91_1 mt_n118 dfn_CMT91_1 3.12153e+07
+CDFCMT91_1 dfn_CMT91_1 mt_n134 5.66513e-11
+RDFCMT91_2 mt_n118 dfn_CMT91_2 1.04051e+07
+CDFCMT91_2 dfn_CMT91_2 mt_n134 5.66513e-11
+RDFCMT91_3 mt_n118 dfn_CMT91_3 3.46837e+06
+CDFCMT91_3 dfn_CMT91_3 mt_n134 5.66513e-11
+RDFCMT91_4 mt_n118 dfn_CMT91_4 1.15612e+06
+CDFCMT91_4 dfn_CMT91_4 mt_n134 5.66513e-11
+CMT92 mt_n116 mt_n118 12n
+* loss cell of CMT92: tan delta 0.3 % (calibrated)
+RDFCMT92_0 mt_n116 dfn_CMT92_0 2.10704e+08
+CDFCMT92_0 dfn_CMT92_0 mt_n118 2.51783e-11
+RDFCMT92_1 mt_n116 dfn_CMT92_1 7.02345e+07
+CDFCMT92_1 dfn_CMT92_1 mt_n118 2.51783e-11
+RDFCMT92_2 mt_n116 dfn_CMT92_2 2.34115e+07
+CDFCMT92_2 dfn_CMT92_2 mt_n118 2.51783e-11
+RDFCMT92_3 mt_n116 dfn_CMT92_3 7.80383e+06
+CDFCMT92_3 dfn_CMT92_3 mt_n118 2.51783e-11
+RDFCMT92_4 mt_n116 dfn_CMT92_4 2.60128e+06
+CDFCMT92_4 dfn_CMT92_4 mt_n118 2.51783e-11
+CMT95 mt_n126 mt_n125 33u
+CMT96 mt_n123 mt_n124 39n
+CMT97 mt_n124 mt_n126 1n
+DMT57 mt_n114 mt_n133 D1N4148
+DMT58 0 mt_n115 D1N4148
+DMT82 mt_n116 mt_n119 D1N34
+DMT83 mt_n119 mt_n116 D1N34
+* SKIPPED M7 (NC) -- G$1 pins not wired on this sheet (unused pot)
+* SKIPPED M8 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QMT53 mt_n110 mt_n112 0 Q2SC945
+QMT54 mt_n113 mt_n108 accent_mt Q2SA733
+QMT55 mt_n127 mt_n130 0 Q2SC945
+RMT239 mt_out mt_n126 1k
+RMT240 mt_n112 trig_mt 22k
+RMT241 0 mt_n112 10k
+RMT242 mt_n110 mt_n108 10k
+RMT243 mt_n108 accent_mt 4.7k
+RMT244 mt_n114 mt_n113 4.7k
+RMT245 pn mt_n131 15k
+RMT246 mt_n131 0 3.3k
+RMT247 mt_n133 mt_n132 2.2meg
+RMT248 mt_n132 mt_n130 33k
+RMT249 mt_n136 0 22k
+RMT250 mt_n136 mt_n128 22k
+RMT251 0 mt_n113 4.7k
+RMT252 b5p mt_n127 4.7k
+RMT253 mt_n138 mt_n139 2.2k
+RMT254 0 mt_n139 6.8k
+RMT255 mt_n139 mt_n115 22k
+RMT256 mt_n122 mt_n121 33k
+RMT257 mt_n118 mt_n117 820k
+RMT258 mt_n121 mt_n118 33k
+RMT259 mt_n116 mt_n122 820k
+RMT260 mt_n120 mt_n116 1k
+RMT261 mt_n123 mt_n135 100k
+RMT262 mt_n123 mt_n122 100k
+RMT263 mt_n137 0 47k
+RMT266 mt_n126 mt_n124 470k
+RMTSW9AO mt_n135 mt_n128 {mt_sw>0.5 ? 1e-3 : 1e12}
+RMTSW9AS mt_n135 0 {mt_sw<0.5 ? 1e-3 : 1e12}
+RMTSW9BS mt_n138 0 {mt_sw<0.5 ? 1e-3 : 1e12}
+RMTSW9CO mt_n140 mt_n116 {mt_sw>0.5 ? 1e-3 : 1e12}
+RMTSW9DO mt_n134 mt_n116 {mt_sw>0.5 ? 1e-3 : 1e12}
+XMTU16A mt_n137 mt_n124 mt_n126 b5p b5n UPC4558_V3
+XMTU17A 0 mt_n121 mt_n122 b5p b5n UPC4558_V3
+XMTU17B mt_n139 mt_n117 mt_n118 b5p b5n UPC4558_V3
+* VR12 100KA: Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param mt_VR12frac = {
++ (mt_vr12<=0.1) ? (0.0    + (mt_vr12-0.0)/0.1*(0.01-0.0))    :
++ (mt_vr12<=0.2) ? (0.01   + (mt_vr12-0.1)/0.1*(0.025-0.01))  :
++ (mt_vr12<=0.3) ? (0.025  + (mt_vr12-0.2)/0.1*(0.055-0.025)) :
++ (mt_vr12<=0.4) ? (0.055  + (mt_vr12-0.3)/0.1*(0.105-0.055)) :
++ (mt_vr12<=0.5) ? (0.105  + (mt_vr12-0.4)/0.1*(0.16-0.105))  :
++ (mt_vr12<=0.6) ? (0.16   + (mt_vr12-0.5)/0.1*(0.26-0.16))   :
++ (mt_vr12<=0.7) ? (0.26   + (mt_vr12-0.6)/0.1*(0.40-0.26))   :
++ (mt_vr12<=0.8) ? (0.40   + (mt_vr12-0.7)/0.1*(0.65-0.40))   :
++ (mt_vr12<=0.9) ? (0.65   + (mt_vr12-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (mt_vr12-0.9)/0.1*(1.0-0.93))    }
+RMTVR12as mt_n124 mt_n125 {max(100000*mt_VR12frac,1)}
+* VR13 500R: Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param mt_VR13frac = {mt_vr13}
+RMTVR13as mt_n119 mt_n120 {max(500*mt_VR13frac,1)}
+RMTVR13se mt_n120 0 {max(500*(1-mt_VR13frac),1)}
+
+* ==== HT (Sheet HT), Tom/Conga switch SW10: ht_sw=1 -> throw O (Tom), 0 -> throw S (Conga) ====
+CHT98 ht_n167 ht_n165 47n
+CHT99 ht_n144 ht_n146 2.7n
+CHT100 ht_n168 0 33n
+CHT101 ht_n158 ht_n171 27n
+CHT102 ht_n161 0 10n
+CHT103 ht_n148 ht_n147 27n
+* loss cell of CHT103: tan delta 0.3 % (calibrated)
+RDFCHT103_0 ht_n148 dfn_CHT103_0 9.3646e+07
+CDFCHT103_0 dfn_CHT103_0 ht_n147 5.66513e-11
+RDFCHT103_1 ht_n148 dfn_CHT103_1 3.12153e+07
+CDFCHT103_1 dfn_CHT103_1 ht_n147 5.66513e-11
+RDFCHT103_2 ht_n148 dfn_CHT103_2 1.04051e+07
+CDFCHT103_2 dfn_CHT103_2 ht_n147 5.66513e-11
+RDFCHT103_3 ht_n148 dfn_CHT103_3 3.46837e+06
+CDFCHT103_3 dfn_CHT103_3 ht_n147 5.66513e-11
+RDFCHT103_4 ht_n148 dfn_CHT103_4 1.15612e+06
+CDFCHT103_4 dfn_CHT103_4 ht_n147 5.66513e-11
+CHT104 ht_n149 ht_n169 22n
+* loss cell of CHT104: tan delta 0.3 % (calibrated)
+RDFCHT104_0 ht_n149 dfn_CHT104_0 1.14929e+08
+CDFCHT104_0 dfn_CHT104_0 ht_n169 4.61603e-11
+RDFCHT104_1 ht_n149 dfn_CHT104_1 3.83097e+07
+CDFCHT104_1 dfn_CHT104_1 ht_n169 4.61603e-11
+RDFCHT104_2 ht_n149 dfn_CHT104_2 1.27699e+07
+CDFCHT104_2 dfn_CHT104_2 ht_n169 4.61603e-11
+RDFCHT104_3 ht_n149 dfn_CHT104_3 4.25664e+06
+CDFCHT104_3 dfn_CHT104_3 ht_n169 4.61603e-11
+RDFCHT104_4 ht_n149 dfn_CHT104_4 1.41888e+06
+CDFCHT104_4 dfn_CHT104_4 ht_n169 4.61603e-11
+CHT105 ht_n147 ht_n149 5.6n
+* loss cell of CHT105: tan delta 0.3 % (calibrated)
+RDFCHT105_0 ht_n147 dfn_CHT105_0 4.51508e+08
+CDFCHT105_0 dfn_CHT105_0 ht_n149 1.17499e-11
+RDFCHT105_1 ht_n147 dfn_CHT105_1 1.50503e+08
+CDFCHT105_1 dfn_CHT105_1 ht_n149 1.17499e-11
+RDFCHT105_2 ht_n147 dfn_CHT105_2 5.01675e+07
+CDFCHT105_2 dfn_CHT105_2 ht_n149 1.17499e-11
+RDFCHT105_3 ht_n147 dfn_CHT105_3 1.67225e+07
+CDFCHT105_3 dfn_CHT105_3 ht_n149 1.17499e-11
+RDFCHT105_4 ht_n147 dfn_CHT105_4 5.57417e+06
+CDFCHT105_4 dfn_CHT105_4 ht_n149 1.17499e-11
+CHT108 ht_n154 ht_n155 33n
+CHT109 ht_n157 ht_n156 33u
+CHT110 ht_n155 ht_n157 1n
+DHT59 ht_n145 ht_n168 D1N4148
+DHT60 0 ht_n146 D1N4148
+DHT84 ht_n147 ht_n150 D1N34
+DHT85 ht_n150 ht_n147 D1N34
+* SKIPPED M9 (NC) -- G$1 pins not wired on this sheet (unused pot)
+* SKIPPED M10 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QHT56 ht_n142 ht_n143 0 Q2SC945
+QHT57 ht_n144 ht_n141 accent_ht Q2SA733
+QHT58 ht_n158 ht_n162 0 Q2SC945
+RHT267 ht_n143 trig_ht 22k
+RHT268 ht_n142 ht_n141 10k
+RHT269 ht_n141 accent_ht 4.7k
+RHT270 0 ht_n144 4.7k
+RHT271 0 ht_n143 10k
+RHT272 ht_n165 0 3.3k
+RHT273 pn ht_n165 15k
+RHT274 ht_n145 ht_n144 4.7k
+RHT275 ht_n167 ht_n162 33k
+RHT276 ht_n168 ht_n167 2.2meg
+RHT277 ht_n171 0 22k
+RHT278 ht_n171 ht_n161 22k
+RHT279 b6p ht_n158 4.7k
+RHT280 ht_n174 ht_n173 1.5k
+RHT281 0 ht_n173 5.6k
+RHT282 ht_n173 ht_n146 22k
+RHT283 ht_n153 ht_n152 33k
+RHT284 ht_n149 ht_n148 820k
+RHT285 ht_n152 ht_n149 33k
+RHT286 ht_n147 ht_n153 820k
+RHT287 ht_n151 ht_n147 1k
+RHT288 ht_n154 ht_n170 100k
+RHT289 ht_n154 ht_n153 100k
+RHT290 ht_n172 0 47k
+RHT291 ht_n157 ht_n155 470k
+RHT294 ht_out ht_n157 1k
+RHTSW10AO ht_n169 ht_n147 {ht_sw>0.5 ? 1e-3 : 1e12}
+RHTSW10BO ht_n170 ht_n161 {ht_sw>0.5 ? 1e-3 : 1e12}
+RHTSW10BS ht_n170 0 {ht_sw<0.5 ? 1e-3 : 1e12}
+RHTSW10CS ht_n174 0 {ht_sw<0.5 ? 1e-3 : 1e12}
+XHTU16B ht_n172 ht_n155 ht_n157 b5p b5n UPC4558_V3
+XHTU18A 0 ht_n152 ht_n153 b6p b6n UPC4558_V3
+XHTU18B ht_n173 ht_n148 ht_n149 b6p b6n UPC4558_V3
+* VR14 100KA: Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param ht_VR14frac = {
++ (ht_vr14<=0.1) ? (0.0    + (ht_vr14-0.0)/0.1*(0.01-0.0))    :
++ (ht_vr14<=0.2) ? (0.01   + (ht_vr14-0.1)/0.1*(0.025-0.01))  :
++ (ht_vr14<=0.3) ? (0.025  + (ht_vr14-0.2)/0.1*(0.055-0.025)) :
++ (ht_vr14<=0.4) ? (0.055  + (ht_vr14-0.3)/0.1*(0.105-0.055)) :
++ (ht_vr14<=0.5) ? (0.105  + (ht_vr14-0.4)/0.1*(0.16-0.105))  :
++ (ht_vr14<=0.6) ? (0.16   + (ht_vr14-0.5)/0.1*(0.26-0.16))   :
++ (ht_vr14<=0.7) ? (0.26   + (ht_vr14-0.6)/0.1*(0.40-0.26))   :
++ (ht_vr14<=0.8) ? (0.40   + (ht_vr14-0.7)/0.1*(0.65-0.40))   :
++ (ht_vr14<=0.9) ? (0.65   + (ht_vr14-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (ht_vr14-0.9)/0.1*(1.0-0.93))    }
+RHTVR14as ht_n155 ht_n156 {max(100000*ht_VR14frac,1)}
+* VR15 500R: Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param ht_VR15frac = {ht_vr15}
+RHTVR15as ht_n150 ht_n151 {max(500*ht_VR15frac,1)}
+RHTVR15se ht_n151 0 {max(500*(1-ht_VR15frac),1)}
+
+
+
+* ==== RM (Sheet RM), Rim Shot / Claves switch SW11: rm_sw=1 -> throw O (Rim Shot), 0 -> throw S (Claves) ====
+CRM24 rm_n178 0 .47u
+CRM111 rm_n357 rm_n183 10n
+CRM112 rm_n357 rm_n176 22n
+CRM113 rm_n175 0 47n
+CRM114 rm_n181 rm_n357 1n
+CRM115 rm_n354 rm_n352 4.7n
+* loss cell of CRM115: tan delta 0.5 % (calibrated)
+RDFCRM115_3 rm_n354 dfn_CRM115_3 1.19548e+07
+CDFCRM115_3 dfn_CRM115_3 rm_n352 1.64359e-11
+RDFCRM115_4 rm_n354 dfn_CRM115_4 3.98494e+06
+CDFCRM115_4 dfn_CRM115_4 rm_n352 1.64359e-11
+RDFCRM115_5 rm_n354 dfn_CRM115_5 1.32831e+06
+CDFCRM115_5 dfn_CRM115_5 rm_n352 1.64359e-11
+CRM116 rm_n352 rm_n353 4.7n
+* loss cell of CRM116: tan delta 0.5 % (calibrated)
+RDFCRM116_3 rm_n352 dfn_CRM116_3 1.19548e+07
+CDFCRM116_3 dfn_CRM116_3 rm_n353 1.64359e-11
+RDFCRM116_4 rm_n352 dfn_CRM116_4 3.98494e+06
+CDFCRM116_4 dfn_CRM116_4 rm_n353 1.64359e-11
+RDFCRM116_5 rm_n352 dfn_CRM116_5 1.32831e+06
+CDFCRM116_5 dfn_CRM116_5 rm_n353 1.64359e-11
+* Claves oscillator (U20A bridged-T, R313 loop): values are a calibrated tolerance instance, not the drawn nominals
+* (schematic: C117 2.2n, C119 2.2n, R308 820k, R312 1k, R313 390k). With the nominals the loop has |T|=1.05 and the Claves grows instead of decaying.
+* Calibrated to the reference Claves decay (sigma -102/s) and frequency (2421.8 Hz).
+CRM117 rm_n340 rm_n338 2.508n
+* loss cell of CRM117: tan delta 0.5 % (calibrated)
+RDFCRM117_3 rm_n340 dfn_CRM117_3 2.24034e+07
+CDFCRM117_3 dfn_CRM117_3 rm_n338 8.77045e-12
+RDFCRM117_4 rm_n340 dfn_CRM117_4 7.46778e+06
+CDFCRM117_4 dfn_CRM117_4 rm_n338 8.77045e-12
+RDFCRM117_5 rm_n340 dfn_CRM117_5 2.48926e+06
+CDFCRM117_5 dfn_CRM117_5 rm_n338 8.77045e-12
+CRM118 rm_n340 rm_n177 2.2n
+* loss cell of CRM118: tan delta 0.5 % (calibrated)
+RDFCRM118_3 rm_n340 dfn_CRM118_3 2.55398e+07
+CDFCRM118_3 dfn_CRM118_3 rm_n177 7.69338e-12
+RDFCRM118_4 rm_n340 dfn_CRM118_4 8.51327e+06
+CDFCRM118_4 dfn_CRM118_4 rm_n177 7.69338e-12
+RDFCRM118_5 rm_n340 dfn_CRM118_5 2.83776e+06
+CDFCRM118_5 dfn_CRM118_5 rm_n177 7.69338e-12
+CRM119 rm_n338 rm_n339 2.112n
+* loss cell of CRM119: tan delta 0.5 % (calibrated)
+RDFCRM119_3 rm_n338 dfn_CRM119_3 2.6604e+07
+CDFCRM119_3 dfn_CRM119_3 rm_n339 7.38565e-12
+RDFCRM119_4 rm_n338 dfn_CRM119_4 8.86799e+06
+CDFCRM119_4 dfn_CRM119_4 rm_n339 7.38565e-12
+RDFCRM119_5 rm_n338 dfn_CRM119_5 2.956e+06
+CDFCRM119_5 dfn_CRM119_5 rm_n339 7.38565e-12
+CRM120 rm_n182 rm_n355 10u
+CRM121 rm_n180 rm_n328 4.7n
+CRM122 rm_n328 rm_n329 4.7n
+CRM125 rm_n185 rm_n347 10n
+CRM126 rm_n348 rm_n351 33u
+CRM153 rm_n348 rm_n179 22p
+DRM61 rm_n357 rm_n324 D1N4148
+DRM62 rm_n183 rm_n332 D1N4148
+DRM63 rm_n326 rm_n180 D1N4148
+DRM64 rm_n181 rm_n336 D1N4148
+* SKIPPED M11 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QRM59 rm_n319 rm_n318 0 Q2SC945
+QRM60 rm_n357 rm_n317 accent_rm Q2SA733
+QRM61 rm_n175 rm_n176 b7n Q2SC945
+QRM62 rm_n180 rm_n182 0 Q2SC945
+QRM63 b7p rm_n329 rm_n330 Q2SC945
+JRMQ74 rm_n179 rm_n175 rm_n351 J2SK30
+RRM107 rm_n178 rm_n324 1k
+RRM108 rm_n326 rm_n178 10k
+RRM295 rm_out rm_n179 1k
+RRM297 rm_n318 trig_rm 22k
+RRM298 rm_n319 rm_n317 10k
+RRM299 rm_n317 accent_rm 4.7k
+RRM300 0 rm_n357 22k
+RRM301 rm_n333 rm_n332 47k
+RRM302 0 rm_n333 10k
+RRM303 0 rm_n318 10k
+RRM304 b7n rm_n176 47k
+RRM305 0 rm_n175 1meg
+RRM306 rm_n181 0 22k
+RRM307 0 rm_n183 100k
+RRM308 rm_n340 rm_n339 762.6k
+RRM309 rm_n344 rm_n343 33k
+RRM310 rm_n337 rm_n336 33k
+RRM311 rm_n337 0 10k
+RRM312 rm_n338 0 1.05k
+RRM313 rm_n344 rm_n306 425.1k
+RRM314 rm_n343 rm_n340 33k
+RRM315 0 rm_n352 5.6k
+RRM316 rm_n354 rm_n353 1meg
+RRM317 rm_n355 0 10k
+RRM318 rm_n355 rm_n354 220k
+RRM319 rm_n344 rm_n345 220k
+RRM320 rm_n355 rm_n344 22k
+RRM321 b7p rm_n182 2.2meg
+RRM322 rm_n328 rm_n330 10k
+RRM323 rm_n330 b7n 22k
+RRM324 rm_n473 rm_n330 220k
+RRM325 rm_n329 0 330k
+RRM326 rm_n347 rm_n348 10k
+RRM327 rm_n179 rm_n175 470k
+RRM330 rm_n348 rm_n179 470k
+RRM331 0 rm_n184 47k
+RRMSW11CO rm_n338 rm_n177 {rm_sw>0.5 ? 1e-3 : 1e12}
+RRMSW11CS rm_n338 rm_n306 {rm_sw<0.5 ? 1e-3 : 1e12}
+RRMSW11DO rm_n185 rm_n473 {rm_sw>0.5 ? 1e-3 : 1e12}
+RRMSW11DS rm_n185 rm_n345 {rm_sw<0.5 ? 1e-3 : 1e12}
+XRMU19A rm_n184 rm_n348 rm_n179 b7p b7n UPC4558_V3
+XRMU20A rm_n337 rm_n339 rm_n340 b7p b7n UPC4558_V3
+XRMU20B 0 rm_n343 rm_n344 b7p b7n UPC4558_V3
+XRMU21A rm_n333 rm_n353 rm_n354 b7p b7n UPC4558_V3
+* VR16 100KA: Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param rm_VR16frac = {
++ (rm_vr16<=0.1) ? (0.0    + (rm_vr16-0.0)/0.1*(0.01-0.0))    :
++ (rm_vr16<=0.2) ? (0.01   + (rm_vr16-0.1)/0.1*(0.025-0.01))  :
++ (rm_vr16<=0.3) ? (0.025  + (rm_vr16-0.2)/0.1*(0.055-0.025)) :
++ (rm_vr16<=0.4) ? (0.055  + (rm_vr16-0.3)/0.1*(0.105-0.055)) :
++ (rm_vr16<=0.5) ? (0.105  + (rm_vr16-0.4)/0.1*(0.16-0.105))  :
++ (rm_vr16<=0.6) ? (0.16   + (rm_vr16-0.5)/0.1*(0.26-0.16))   :
++ (rm_vr16<=0.7) ? (0.26   + (rm_vr16-0.6)/0.1*(0.40-0.26))   :
++ (rm_vr16<=0.8) ? (0.40   + (rm_vr16-0.7)/0.1*(0.65-0.40))   :
++ (rm_vr16<=0.9) ? (0.65   + (rm_vr16-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (rm_vr16-0.9)/0.1*(1.0-0.93))    }
+RRMVR16as rm_n351 rm_n179 {max(100000*rm_VR16frac,1)}
+
+
+
+* ==== HC (Sheet HC), Hand Clap / Maracas switch SW12: hc_sw=1 -> throw O (Hand Clap), 0 -> throw S (Maracas) ====
+CHC127 wn hc_n201 1.8n
+CHC128 hc_n202 hc_n201 4.7n
+CHC129 hc_n201 hc_n199 4.7n
+CHC130 hc_n278 hc_n277 47n
+CHC131 hc_n234 hc_n232 10n
+CHC132 hc_n235 hc_n234 1n
+CHC133 hc_n240 hc_n235 1n
+CHC134 hc_n229 0 33n
+CHC135 hc_n228 0 100n
+CHC136 hc_n199 hc_n203 22n
+CHC137 hc_n200 hc_n189 33n
+CHC138 hc_n194 0 47n
+CHC139 0 hc_n190 18n
+CHC140 0 hc_n224 27n
+CHC141 hc_n217 hc_n219 1n ic=1.490120e+01
+CHC142 hc_n220 hc_n216 220p
+CHC143 hc_n196 0 1u
+CHC144 0 hc_n211 .47u
+CHC145 hc_n282 hc_n283 33u
+CHC146 hc_n195 0 18n
+CHC149 hc_n282 hc_n281 220p
+CHC150 hc_n208 hc_n206 1n
+CHC151 hc_n279 hc_n275 10n
+CHC152 hc_n195 hc_n205 4.7n
+DHC65 hc_n227 hc_n232 D1N4148
+DHC66 hc_n285 hc_n229 D1N4148
+DHC67 hc_n284 hc_n228 D1N4148
+DHC68 hc_n193 hc_n196 D1N4148
+DHC69 hc_n193 hc_n190 D1N4148
+DHC70 b8n hc_n219 D1N4148
+DHC71 hc_n210 hc_n211 D1N4148
+QHC28 hc_n188 hc_n186 0 Q2SC945
+QHC29 hc_cptrig hc_n187 accent_hc Q2SA733
+QHC65 hc_n227 hc_n277 b8p Q2SA733
+QHC66 0 hc_n229 hc_n230 Q2SA733
+QHC67 hc_n285 hc_n226 0 Q2SC945
+QHC68 b8p hc_n240 hc_n275 Q2SC945
+QHC69 b8p hc_n192 hc_n193 Q2SC945
+QHC70 hc_n195 hc_n189 hc_n191 Q2SC945
+QHC71 b8n hc_n197 hc_n213 Q2SA733
+QHC72 hc_n214 hc_n212 hc_n213 Q2SA733
+QHC73 hc_n215 hc_n218 b8n Q2SC945
+RHC103 trig_hc hc_n186 22k
+RHC104 0 hc_n186 10k
+RHC105 hc_n187 accent_hc 4.7k
+RHC106 hc_n188 hc_n187 10k
+RHC200p hc_n191 b8n 10k
+RHC296 hc_out hc_n282 1k
+RHC332 wn hc_n201 27k
+RHC333 0 hc_n201 10k
+RHC334 hc_n202 hc_n199 100k
+RHC335 wn hc_n278 6.8k
+RHC336 0 hc_n277 1meg
+RHC337 hc_n232 hc_n230 10k
+RHC338 0 hc_n234 15k
+RHC339 hc_n235 hc_n275 3.3k
+RHC340 hc_n240 0 68k
+RHC341 hc_n285 hc_n229 470k
+RHC342 hc_n199 hc_n200 15k
+RHC343 b8p hc_n285 100k
+RHC344 hc_n228 hc_n226 220k
+RHC345 0 hc_n228 150k
+RHC346 0 hc_n200 680
+RHC347 hc_n275 b8n 22k
+RHC348 hc_n194 hc_n190 1meg
+RHC349 hc_n189 hc_n194 1meg
+RHC350 0 hc_n224 1meg
+RHC351 hc_n221 b8n 4.7k
+RHC352 hc_n209 hc_n221 4.7k
+RHC353 0 hc_n209 4.7k
+RHC354 hc_n225 0 5.6k
+RHC355 hc_n225 hc_n217 2.7k
+RHC356 hc_n211 hc_n216 1meg
+RHC357 hc_n218 hc_n219 68k
+RHC358 hc_n220 hc_n218 68k
+RHC359 0 hc_n220 10k
+RHC360 hc_n192 hc_n223 27k
+RHC361 hc_n223 b8n 22k
+RHC362 hc_n197 hc_n196 330k
+RHC363 b8p hc_n195 10k
+RHC364 hc_n197 0 2.2k
+RHC365 hc_n210 0 82k
+RHC366 b8p hc_n213 15k
+RHC367 hc_n211 hc_n215 330
+RHC368 hc_n212 hc_n215 470k
+RHC369 hc_n191 0 330
+RHC370 hc_n198 hc_n197 47k
+RHC371 0 hc_n212 15k
+RHC372 hc_n204 hc_n203 39k
+RHC373 0 hc_n280 47k
+RHC374 hc_n287 hc_n214 10k
+RHC375 hc_n282 hc_n281 470k
+RHC376 hc_n205 hc_n281 47k
+RHC377 hc_n281 hc_n279 100k
+RHC378 hc_n206 hc_n281 100k
+RHC381 0 hc_n286 1k
+RHC382 hc_n204 0 1k
+RHC383 0 hc_n207 82k
+RHCSW12O hc_cptrig hc_n192 {hc_sw>0.5 ? 1e-3 : 1e12}
+RHCSW12S hc_cptrig hc_n284 {hc_sw<0.5 ? 1e-3 : 1e12}
+* TM3 trimmer 10K(B): position parameter hc_tm3 (A<->S = full*(1-p), S<->E = full*p)
+RHCTM3as b8n hc_n198 {max(10000*(1-hc_tm3),1)}
+RHCTM3se hc_n198 0 {max(10000*hc_tm3,1)}
+XHCU19B hc_n280 hc_n281 hc_n282 b7p b7n UPC4558_V3
+XHCU21B 0 hc_n202 hc_n199 b7p b7n UPC4558_V3
+XHCU22 hc_n286 hc_n204 hc_n287 hc_n207 hc_n207 hc_n208 b8n b8p b8n BA6110_OTA
+XHCU231 hc_n216 hc_n225 hc_n220 0 b8n AN6912_CMP
+XHCU232 hc_n224 hc_n209 hc_n217 0 b8n AN6912_CMP
+XHCU233 hc_n221 hc_n223 hc_n224 0 b8n AN6912_CMP
+XHCU234 hc_n209 hc_n217 hc_n210 0 b8n AN6912_CMP
+* VR17 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param hc_VR17frac = {
++ (hc_vr17<=0.1) ? (0.0    + (hc_vr17-0.0)/0.1*(0.01-0.0))    :
++ (hc_vr17<=0.2) ? (0.01   + (hc_vr17-0.1)/0.1*(0.025-0.01))  :
++ (hc_vr17<=0.3) ? (0.025  + (hc_vr17-0.2)/0.1*(0.055-0.025)) :
++ (hc_vr17<=0.4) ? (0.055  + (hc_vr17-0.3)/0.1*(0.105-0.055)) :
++ (hc_vr17<=0.5) ? (0.105  + (hc_vr17-0.4)/0.1*(0.16-0.105))  :
++ (hc_vr17<=0.6) ? (0.16   + (hc_vr17-0.5)/0.1*(0.26-0.16))   :
++ (hc_vr17<=0.7) ? (0.26   + (hc_vr17-0.6)/0.1*(0.40-0.26))   :
++ (hc_vr17<=0.8) ? (0.40   + (hc_vr17-0.7)/0.1*(0.65-0.40))   :
++ (hc_vr17<=0.9) ? (0.65   + (hc_vr17-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (hc_vr17-0.9)/0.1*(1.0-0.93))    }
+RHCVR17as hc_n281 hc_n283 {max(100000*hc_VR17frac,1)}
+
+
+
+* ==== CB (Sheet CB), Cowbell: Q14/Q15 gate the CY oscillators osc_f (TP6) / osc_e (TP7), envelope Q1/Q5/C9, bandpass U2B, level VR5, buffer U2A ====
+CCB9 cb_n444 0 .47u
+CCB28 cb_n455 cb_n457 10n
+CCB29 cb_n455 cb_n456 3.3n
+CCB30 cb_n453 cb_n455 2.2n
+* CCB31 (E path, 559 Hz) = 3.3n, SCHEMATIC 2.2n: calibrated to the Yocto2 recordings CB-1/CB-2 (2026-10-04). With 2.2n the lines at 559/1118 Hz sit at -17.5/-21.3 dB
+* relative to 859 Hz, the recordings have -14.7/-17.5 dB; 3.3n (one standard value) gives -14.9/-17.4 dB, the envelope moves by <= 0.7 dB. CCB30 (F path) stays 2.2n.
+CCB31 cb_n454 cb_n455 3.3n
+CCB32 cb_n446 cb_n464 10u
+CCB33 cb_n450 cb_n465 10u
+CCB34 cb_n466 0 1u
+CCB75 cb_n462 cb_n456 1u
+CCB76 cb_n460 cb_n459 22n
+DCB2 cb_n468 cb_n444 D1N4148
+DCB3 cb_n448 cb_n447 D1N4148
+DCB4 cb_n452 cb_n451 D1N4148
+* SKIPPED M12 (NC) -- G$1 pins not wired on this sheet (unused pot)
+* SKIPPED M13 (NC) -- G$1 pins not wired on this sheet (unused pot)
+QCB1 cb_n442 cb_n443 0 Q2SC945
+QCB5 cb_n467 cb_n441 accent_cb Q2SA733
+QCB14 cb_n451 cb_n450 cb_n449 Q2SC945
+QCB15 cb_n447 cb_n446 cb_n445 Q2SC945
+RCB4 cb_n443 trig_cb 22k
+RCB5 0 cb_n443 10k
+RCB9 cb_n442 cb_n441 22k
+RCB14 cb_n441 accent_cb 4.7k
+RCB24 0 cb_n455 2.2k
+RCB25 cb_n456 cb_n457 470k
+RCB26 cb_n453 cb_n448 10k
+RCB27 cb_n454 cb_n452 10k
+RCB28 cb_n448 cb_n444 100k
+RCB29 cb_n452 cb_n444 100k
+RCB30 cb_n446 b1rail 470k
+RCB31 0 cb_n445 100
+RCB32 cb_n450 b1rail 470k
+RCB33 0 cb_n449 100
+RCB62 osc_f cb_n464 33k
+RCB63 cb_n464 0 2.2k
+RCB64 osc_e cb_n465 33k
+RCB65 cb_n465 0 2.2k
+RCB82 cb_n444 cb_n466 33k
+RCB116 cb_n462 cb_n461 8.2k
+RCB117 cb_n459 0 22k
+RCB122 cb_n468 cb_n467 1k
+RCB163 cb_n458 cb_out 1k
+XCBU2A cb_n459 cb_n458 cb_n458 b1rail vee UPC4558_V3
+XCBU2B 0 cb_n457 cb_n456 b1rail vee UPC4558_V3
+* VR5 5KA: Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param cb_VR5frac = {
++ (cb_vr5<=0.1) ? (0.0    + (cb_vr5-0.0)/0.1*(0.01-0.0))    :
++ (cb_vr5<=0.2) ? (0.01   + (cb_vr5-0.1)/0.1*(0.025-0.01))  :
++ (cb_vr5<=0.3) ? (0.025  + (cb_vr5-0.2)/0.1*(0.055-0.025)) :
++ (cb_vr5<=0.4) ? (0.055  + (cb_vr5-0.3)/0.1*(0.105-0.055)) :
++ (cb_vr5<=0.5) ? (0.105  + (cb_vr5-0.4)/0.1*(0.16-0.105))  :
++ (cb_vr5<=0.6) ? (0.16   + (cb_vr5-0.5)/0.1*(0.26-0.16))   :
++ (cb_vr5<=0.7) ? (0.26   + (cb_vr5-0.6)/0.1*(0.40-0.26))   :
++ (cb_vr5<=0.8) ? (0.40   + (cb_vr5-0.7)/0.1*(0.65-0.40))   :
++ (cb_vr5<=0.9) ? (0.65   + (cb_vr5-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (cb_vr5-0.9)/0.1*(1.0-0.93))    }
+RCBVR5as 0 cb_n460 {max(5000*cb_VR5frac,1)}
+RCBVR5se cb_n460 cb_n461 {max(5000*(1-cb_VR5frac),1)}
+
+
+
+* ==== PC-2 (Sheet PC-2), CP_MA_OUT1: envelope U8B/D1/C7, OTA U9 (BA6110) driven by Q3, phase-shift oscillator Q2, op-amp loop U25/U11/U27 with JFET Q6, switches SW2/SW3 ====
+CPC22 pc2_n637 pc2_n636 3.3n
+CPC23 pc2_n379 pc2_n363 47n
+CPC24 0 pc2_n365 47n
+CPC25 pc2_n366 pc2_n365 47n
+CPC26 0 pc2_n369 47n
+CPC27 pc2_n372 0 3.32u
+CPC234 0 pc2_n385 1n
+CPC236 pc2_n371 pc2_n368 220p
+CPC293 pc2_n371 pc2_n434 33u
+CPC2154 pc2_n631 pc2_n638 22n
+CPC2156 pc2_n684 pc2_n398 1n
+CPC2157 pc2_n389 pc2_n687 1u
+DPC21 pc2_n288 pc2_n372 D1N4148
+DPC22 pc2_n289 pc2_n365 D1N4148
+QPC21 pc2_n290 pc2_n401 0 Q2SC945
+QPC22 pc2_n365 pc2_n363 0 Q2SC945
+QPC23 pc2_n381 0 pc2_n370 Q2SA733
+QPC24 pc2_n391 pc2_n390 0 Q2SC945
+QPC25 pc2_n410 pc2_n388 accent_pc2 Q2SA733
+JPC2Q6 pc2_n434 pc2_n430 pc2_n368 J2SK30PC2
+RPC21 b9p pc2_n289 1meg
+RPC22 pc2_n363 0 100k
+RPC23 pc2_n366 0 100k
+RPC24 pc2_n366 pc2_n369 1k
+RPC25 pc2_n368 pc2_n369 220k
+RPC26 pc2_n638 pc2_n644 47k
+RPC27 pc2_n373 pc2_n410 10k
+RPC28 pc2_n410 0 22k
+RPC29 pc2_n374 0 47k
+RPC210 pc2_n374 pc2_n372 47k
+RPC211 pc2_n380 pc2_n372 1k
+RPC212 pc2_n370 pc2_n379 33k
+RPC213 pc2_n383 0 5.6k
+RPC214 pc2_n376 pc2_n631 47k
+RPC215 pc2_n379 pc2_n382 4.7k
+RPC216 0 pc2_n390 10k
+RPC217 pc2_n390 trig_pc2 22k
+RPC218 0 pc2_n389 1k
+RPC219 0 pc2_n384 1k
+RPC220 pc2_n368 pc2_n386 100k
+RPC221 0 pc2_n385 33k
+RPC222 pc2_n631 pc2_n632 22k
+RPC223 pc2_n637 pc2_n632 47k
+RPC224 0 pc2_n364 47k
+RPC225 pc2_n371 pc2_n368 470k
+RPC226 pc2_out pc2_n371 1k
+RPC229 pc2_n636 0 22k
+RPC230 pc2_n404 0 330
+RPC231 pc2_n408 pc2_n637 47k
+RPC232 pc2_n395 pc2_n383 47k
+RPC233 pc2_n396 pc2_n387 47k
+RPC234 pc2_n393 pc2_n394 47k
+RPC235 pc2_n393 0 47k
+RPC236 pc2_n394 pc2_n395 100k
+RPC237 pc2_n395 0 100k
+RPC238 pc2_n394 0 4.7k
+RPC239 pc2_n398 pc2_n394 100k
+RPC240 pc2_n290 pc2_n398 47k
+RPC241 pc2_n397 pc2_n684 47k
+RPC242 pc2_n402 pc2_n399 100k
+RPC243 0 pc2_n399 100k
+RPC244 pc2_n402 pc2_n401 47k
+RPC245 pc2_n409 pc2_n684 470k
+RPC246 pc2_n683 pc2_n402 1meg
+RPC247 pc2_n400 pc2_n403 47k
+RPC248 b9p pc2_n407 56k
+RPC249 pc2_n406 pc2_n405 10k
+RPC250 pc2_n405 b9n 150k
+RPC251 pc2_n388 accent_pc2 4.7k
+RPC252 pc2_n391 pc2_n388 10k
+RPC253 0 pc2_n410 22k
+RPC258 pc2_n418 pc2_n379 100k
+RPC259 pc2_n430 pc2_n418 100k
+RPC260 pc2_n434 pc2_n430 470k
+RPC2SW2O pc2_n403 pc2_n408 {pc2_sw2>0.5 ? 1e-3 : 1e12}
+RPC2SW2S pc2_n403 pc2_n376 {pc2_sw2<0.5 ? 1e-3 : 1e12}
+RPC2SW3O pc2_n687 pc2_n409 {pc2_sw3>0.5 ? 1e-3 : 1e12}
+RPC2SW3S pc2_n687 pc2_n683 {pc2_sw3<0.5 ? 1e-3 : 1e12}
+* TM5 trimmer 10K(B) (end A unwired): rheostat S<->E = full*p, position parameter pc2_tm5
+RPC2TM5se pc2_n387 0 {max(10000*pc2_tm5,1)}
+XPC2U8A pc2_n372 pc2_n379 pc2_n379 b9p b9n UPC4558_V3
+XPC2U8B pc2_n373 pc2_n374 pc2_n288 b9p b9n UPC4558_V3
+XPC2U9 pc2_n389 pc2_n384 pc2_n381 pc2_n385 pc2_n385 pc2_n386 b9n b9p b9n BA6110_OTA
+XPC2U10A 0 pc2_n638 pc2_n631 b9p b9n UPC4558_V3
+XPC2U10B pc2_n632 pc2_n636 pc2_n637 b9p b9n UPC4558_V3
+XPC2U11A pc2_n364 pc2_n368 pc2_n371 b9p b9n UPC4558_V3
+XPC2U11B pc2_n399 pc2_n397 pc2_n402 b9p b9n UPC4558_V3
+XPC2U25A pc2_n393 pc2_n398 pc2_n684 b9p b9n UPC4558_V3
+XPC2U25B pc2_n396 pc2_n395 pc2_n394 b9p b9n UPC4558_V3
+XPC2U27A 0 pc2_n421 pc2_n421 b9p b9n UPC4558_V3
+XPC2U27B 0 pc2_n418 pc2_n430 b9p b9n UPC4558_V3
+* VR1 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param pc2_VR1frac = {
++ (pc2_vr1<=0.1) ? (0.0    + (pc2_vr1-0.0)/0.1*(0.01-0.0))    :
++ (pc2_vr1<=0.2) ? (0.01   + (pc2_vr1-0.1)/0.1*(0.025-0.01))  :
++ (pc2_vr1<=0.3) ? (0.025  + (pc2_vr1-0.2)/0.1*(0.055-0.025)) :
++ (pc2_vr1<=0.4) ? (0.055  + (pc2_vr1-0.3)/0.1*(0.105-0.055)) :
++ (pc2_vr1<=0.5) ? (0.105  + (pc2_vr1-0.4)/0.1*(0.16-0.105))  :
++ (pc2_vr1<=0.6) ? (0.16   + (pc2_vr1-0.5)/0.1*(0.26-0.16))   :
++ (pc2_vr1<=0.7) ? (0.26   + (pc2_vr1-0.6)/0.1*(0.40-0.26))   :
++ (pc2_vr1<=0.8) ? (0.40   + (pc2_vr1-0.7)/0.1*(0.65-0.40))   :
++ (pc2_vr1<=0.9) ? (0.65   + (pc2_vr1-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (pc2_vr1-0.9)/0.1*(1.0-0.93))    }
+RPC2VR1as pc2_n368 pc2_n434 {max(100000*pc2_VR1frac,1)}
+* VR2 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param pc2_VR2frac = {
++ (pc2_vr2<=0.1) ? (0.0    + (pc2_vr2-0.0)/0.1*(0.01-0.0))    :
++ (pc2_vr2<=0.2) ? (0.01   + (pc2_vr2-0.1)/0.1*(0.025-0.01))  :
++ (pc2_vr2<=0.3) ? (0.025  + (pc2_vr2-0.2)/0.1*(0.055-0.025)) :
++ (pc2_vr2<=0.4) ? (0.055  + (pc2_vr2-0.3)/0.1*(0.105-0.055)) :
++ (pc2_vr2<=0.5) ? (0.105  + (pc2_vr2-0.4)/0.1*(0.16-0.105))  :
++ (pc2_vr2<=0.6) ? (0.16   + (pc2_vr2-0.5)/0.1*(0.26-0.16))   :
++ (pc2_vr2<=0.7) ? (0.26   + (pc2_vr2-0.6)/0.1*(0.40-0.26))   :
++ (pc2_vr2<=0.8) ? (0.40   + (pc2_vr2-0.7)/0.1*(0.65-0.40))   :
++ (pc2_vr2<=0.9) ? (0.65   + (pc2_vr2-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (pc2_vr2-0.9)/0.1*(1.0-0.93))    }
+RPC2VR2as pc2_n404 pc2_n644 {max(100000*pc2_VR2frac,1)}
+RPC2VR2se pc2_n644 pc2_n637 {max(100000*(1-pc2_VR2frac),1)}
+* VR3 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param pc2_VR3frac = {
++ (pc2_vr3<=0.1) ? (0.0    + (pc2_vr3-0.0)/0.1*(0.01-0.0))    :
++ (pc2_vr3<=0.2) ? (0.01   + (pc2_vr3-0.1)/0.1*(0.025-0.01))  :
++ (pc2_vr3<=0.3) ? (0.025  + (pc2_vr3-0.2)/0.1*(0.055-0.025)) :
++ (pc2_vr3<=0.4) ? (0.055  + (pc2_vr3-0.3)/0.1*(0.105-0.055)) :
++ (pc2_vr3<=0.5) ? (0.105  + (pc2_vr3-0.4)/0.1*(0.16-0.105))  :
++ (pc2_vr3<=0.6) ? (0.16   + (pc2_vr3-0.5)/0.1*(0.26-0.16))   :
++ (pc2_vr3<=0.7) ? (0.26   + (pc2_vr3-0.6)/0.1*(0.40-0.26))   :
++ (pc2_vr3<=0.8) ? (0.40   + (pc2_vr3-0.7)/0.1*(0.65-0.40))   :
++ (pc2_vr3<=0.9) ? (0.65   + (pc2_vr3-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (pc2_vr3-0.9)/0.1*(1.0-0.93))    }
+RPC2VR3as 0 pc2_n400 {max(100000*pc2_VR3frac,1)}
+RPC2VR3se pc2_n400 pc2_n396 {max(100000*(1-pc2_VR3frac),1)}
+* VR18 100K(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param pc2_VR18frac = {
++ (pc2_vr18<=0.1) ? (0.0    + (pc2_vr18-0.0)/0.1*(0.01-0.0))    :
++ (pc2_vr18<=0.2) ? (0.01   + (pc2_vr18-0.1)/0.1*(0.025-0.01))  :
++ (pc2_vr18<=0.3) ? (0.025  + (pc2_vr18-0.2)/0.1*(0.055-0.025)) :
++ (pc2_vr18<=0.4) ? (0.055  + (pc2_vr18-0.3)/0.1*(0.105-0.055)) :
++ (pc2_vr18<=0.5) ? (0.105  + (pc2_vr18-0.4)/0.1*(0.16-0.105))  :
++ (pc2_vr18<=0.6) ? (0.16   + (pc2_vr18-0.5)/0.1*(0.26-0.16))   :
++ (pc2_vr18<=0.7) ? (0.26   + (pc2_vr18-0.6)/0.1*(0.40-0.26))   :
++ (pc2_vr18<=0.8) ? (0.40   + (pc2_vr18-0.7)/0.1*(0.65-0.40))   :
++ (pc2_vr18<=0.9) ? (0.65   + (pc2_vr18-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (pc2_vr18-0.9)/0.1*(1.0-0.93))    }
+RPC2VR18as pc2_n406 pc2_n396 {max(100000*pc2_VR18frac,1)}
+RPC2VR18se pc2_n396 pc2_n407 {max(100000*(1-pc2_VR18frac),1)}
+* VR19 1M(A): Taper A (audio/log), JIS.A '15A' reference curve (same class as CY VR6, VERIFIED there).
+.param pc2_VR19frac = {
++ (pc2_vr19<=0.1) ? (0.0    + (pc2_vr19-0.0)/0.1*(0.01-0.0))    :
++ (pc2_vr19<=0.2) ? (0.01   + (pc2_vr19-0.1)/0.1*(0.025-0.01))  :
++ (pc2_vr19<=0.3) ? (0.025  + (pc2_vr19-0.2)/0.1*(0.055-0.025)) :
++ (pc2_vr19<=0.4) ? (0.055  + (pc2_vr19-0.3)/0.1*(0.105-0.055)) :
++ (pc2_vr19<=0.5) ? (0.105  + (pc2_vr19-0.4)/0.1*(0.16-0.105))  :
++ (pc2_vr19<=0.6) ? (0.16   + (pc2_vr19-0.5)/0.1*(0.26-0.16))   :
++ (pc2_vr19<=0.7) ? (0.26   + (pc2_vr19-0.6)/0.1*(0.40-0.26))   :
++ (pc2_vr19<=0.8) ? (0.40   + (pc2_vr19-0.7)/0.1*(0.65-0.40))   :
++ (pc2_vr19<=0.9) ? (0.65   + (pc2_vr19-0.8)/0.1*(0.93-0.65))   :
++                  (0.93   + (pc2_vr19-0.9)/0.1*(1.0-0.93))    }
+RPC2VR19as 0 pc2_n380 {max(1000000*pc2_VR19frac,1)}
+RPC2VR19se pc2_n380 pc2_n380 {max(1000000*(1-pc2_VR19frac),1)}
+* VR20 10K(B) CD: Taper B = linear (standard convention, confirmed for this
+* project's A/B/C letters via CY VR6 research).
+.param pc2_VR20frac = {pc2_vr20}
+RPC2VR20as pc2_n383 pc2_n382 {max(10000*pc2_VR20frac,1)}
+RPC2VR20se pc2_n382 pc2_n387 {max(10000*(1-pc2_VR20frac),1)}
+
+
+
+* ==== IO buses (sheet IO) and master stage (sheet Master) ====
+* Each channel hangs on the two buses through two resistors (N$847 = busr,
+* N$812 = busl). Source side: BD -> bd_out, CY -> cy_out, OH (tip contact TN) -> oh_out,
+* CH (ring contact RN of the OH/CH jack) -> ch_out. All other channels
+* (instruments not simulated) have their source side at 0V -- their outputs
+* are low-impedance op-amp outputs without signal. Tip contact: 10n to GND
+* (C500 BD, C508 CY, C509 OH, C502 SD) or ring contact (C514 CH); normal contact (TN) without plug connected to T.
+C500 bd_out 0 10n
+C502 sd_out 0 10n
+* C506: HANCLAP jack tip (HC sheet CP_MA_OUT via J12-3), R516/R517 = normal-contact resistors to busr/busl
+C506 hc_out 0 10n
+* C507: COWBELL jack tip (CB sheet CB_OUT via J12-4), R519/R520 = normal-contact resistors to busr/busl
+C507 cb_out 0 10n
+* C510: PC-2 jack tip (PC-2 sheet CP_MA_OUT1 via J13-4), R528/R529 = normal-contact resistors to busr/busl
+C510 pc2_out 0 10n
+* C8: RIMSHOT jack tip (RM sheet), R55/R56 = normal-contact resistors to busr/busl
+C8 rm_out 0 10n
+C504 ht_out 0 10n
+C505 mt_out 0 10n
+C503 lt_out 0 10n
+C508 cy_out 0 10n
+C509 oh_out 0 10n
+C514 ch_out 0 10n
+R502_io bd_out busl 12k
+R505_io sd_out busl 12k
+R508_io lt_out busl 15k
+R511_io ht_out busl 8.2k
+R514_io mt_out busl 12k
+R517_io hc_out busl 12k
+R520_io cb_out busl 12k
+R523_io cy_out busl 8.2k
+R526_io oh_out busl 15k
+R529_io pc2_out busl 12k
+R535_io ch_out busl 15k
+R56_io rm_out busl 12k
+R501_io bd_out busr 12k
+R504_io sd_out busr 12k
+R507_io lt_out busr 8.2k
+R510_io ht_out busr 15k
+R513_io mt_out busr 12k
+R516_io hc_out busr 12k
+R519_io cb_out busr 12k
+R522_io cy_out busr 15k
+R525_io oh_out busr 8.2k
+R528_io pc2_out busr 12k
+R536_io ch_out busr 8.2k
+R55_io rm_out busr 12k
+* Bus -> J14 -> J6 (pin 3 = busr, pin 1 = busl) -> C253/C254 (10u) -> U1B/U1A -IN.
+* Summing amplifier U1 (uPC4558C, model UPC4558_V3), feedback VR28 (50KB, rheostat
+* between output and -IN, both halves coupled), +IN to GND.
+C253 busr u1b_inn 10u
+C254 busl u1a_inn 10u
+XU1B 0 u1b_inn u1b_out b5p b5n UPC4558_V3
+XU1A 0 u1a_inn u1a_out b5p b5n UPC4558_V3
+Rvr28b u1b_out u1b_inn {max(50k*vr28,1)}
+Rvr28a u1a_out u1a_inn {max(50k*vr28,1)}
+* U1 outputs -> R474/R473 (1k) -> C255/C252 (10u) -> node J6-5/J6-6 (Q82/Q83 collectors,
+* Q82/Q83 not modelled) -> J14-5/-6 -> R530/R532 (2.2k) -> R531/R533 (10k) || C511/C512 (10n).
+R474 u1b_out n778 1k
+C255 n778 j6_5 10u
+R473 u1a_out n779 1k
+C252 n779 j6_6 10u
+R530 j6_5 lout 2.2k
+R531 lout 0 10k
+C511 lout 0 10n
+R532 j6_6 rout 2.2k
+R533 rout 0 10k
+C512 rout 0 10n
+
+* ==== Block 11: virtual recording coupling (2026-09-13)
+* -- NOT a TR-808/Yocto part ====
+* In steady state u6bout has a real, non-zero DC operating point
+* (-0.0245872V, from the op-amp Voff/Ibias fix -- a physically
+* real property of THIS node, not a model error). According to the Eagle schematic (sheet IO, see the block 10
+* comment) the real master-out path itself has NO series coupling
+* capacitor -- only the individual "CYMBAL" jack carries C508 (10nF),
+* which is not in the signal path in normal operation (no plug inserted, master out is what is heard).
+* The DC offset is therefore really present at the
+* master-out pin as well. It does not end up in ANY real reference recording
+* (CY1050.WAV etc.), because every device used for recording (audio
+* interface / mixer input) has an AC-coupled line input --
+* industry standard, present almost without exception. To make our rendered
+* reference WAV fairly comparable with a real recording,
+* a single-pole virtual AC-coupling
+* high-pass is attached HERE -- explicitly OUTSIDE the actual circuit, purely
+* as a model of the recording chain. Corner frequency ~10.6Hz (far below any audio content
+* of the cymbal/ride signals, but fast enough to settle within ~100ms
+* -- lies entirely within the attack window that has already been thoroughly
+* checked). Part values NOT backed by the schematic (no
+* real part), chosen deliberately.
+* For information only, the tap BEFORE this stage (ioMasterR/ioMasterL,
+* block 10) remains unchanged in the real, DC-afflicted state
+* -- for internal circuit-fidelity comparisons (SPICE node against
+* a reduced-model tap) that remains the right quantity, the offset belongs THERE
+* and must be the same on BOTH sides. u6bout_ac is intended only for the direct
+* comparison with real hardware recordings.
+Cacrec u6bout u6bout_ac 15u
+Racrec u6bout_ac 0 1k
+
+.ic v(vdd4)=4.7876 v(n_a)=0 v(n_b)=0 v(n_c)=0 v(n_d)=0 v(n_e)=0 v(n_f)=0
++ v(b85mid)=15
++ v(c41node)=0.000449982 v(c45node)=0.000120494
++ v(c40node)=0.000107661 v(c39node)=9.69879e-05
++ v(c38node)=0.0111454 v(c37node)=0.0111454
++ v(a1)=-0.000499956 v(s1)=-0.000499956 v(m1)=0 v(bp1out)=-0.00521496
++ v(a2)=-0.000499956 v(s2)=-0.000499956 v(m2)=0 v(bp2out)=-0.00521496
++ v(q18base)=0.513618 v(q17base)=0.513618 v(q16base)=0.51362
++ v(d11k)=0.0186717 v(d5k)=0.0186731 v(d11a)=8.63147e-05 v(d5a)=0.0111693
++ v(n530)=0 v(n534)=-0.000509454 v(u5ap)=0.001125 v(n540)=-0.000992425 v(u5bp)=0.001125
++ v(d12a)=0.00015048 v(nodex)=-0.86758 v(q25base)=-0.257584 v(q25emit)=-0.86758
++ v(r123node)=0 v(r121node)=0 v(u5bout)=-0.000992425 v(n120node)=0
++ v(u5aout)=-0.000509454 v(n112node)=0 v(meshx3)=0
++ v(u6bn)=0.00243784 v(u6bout)=-0.0245872 v(u6bm)=-0.0245872
++ v(u6bout_ac)=-0.0245872
++ v(n322)=0.0024378302 v(n323)=-0.024562701 v(xu7a.n1)=-0.024622132
++ v(n325)=0.0024378296 v(n327)=-0.024562472 v(xu7b.n1)=-0.024621902
++ v(n342)=-0.024562701 v(n375)=-0.024562472
+* BD/IO/Master initial values: DC .op of the BD/IO/Master part of this file (cy_out/oh_out/ch_out = CY/HH rest values fixed)
++ v(bd_c1)=-9.43691e-01
++ v(bd_n46)=6.136791e-01
++ v(bd_n47)=3.681000e+00
++ v(bd_n48)=3.681000e+00
++ v(bd_n49)=1.084913e-01
++ v(bd_n50)=2.772565e-05
++ v(bd_n51)=2.816968e-04
++ v(bd_n52)=1.084911e-01
++ v(bd_n53)=5.806467e-03
++ v(bd_n54)=-2.17722e-04
++ v(bd_n55)=-5.77177e-02
++ v(bd_n56)=-5.77177e-02
++ v(bd_n57)=-5.77177e-02
++ v(bd_n58)=8.744652e-04
++ v(bd_n59)=5.676415e-02
++ v(bd_n60)=-9.43691e-01
++ v(bd_n61)=-1.58297e+00
++ v(bd_n62)=-6.64314e-03
++ v(bd_n63)=0.000000e+00
++ v(bd_n64)=0.000000e+00
++ v(bd_n65)=5.311390e-03
++ v(bd_n66)=8.744652e-04
++ v(bd_n67)=1.375000e-03
++ v(bd_n68)=6.869140e-06
++ v(bd_n69)=5.072573e-03
++ v(bd_n70)=2.554819e-08
++ v(bd_out)=-6.70957e-03
++ v(busl)=-6.65142e-03
++ v(busr)=-7.56489e-03
++ v(j6_5)=0.000000e+00
++ v(j6_6)=0.000000e+00
++ v(lout)=0.000000e+00
++ v(n778)=-1.93749e-03
++ v(n779)=-1.93749e-03
++ v(rout)=0.000000e+00
++ v(u1a_inn)=-4.99988e-04
++ v(u1a_out)=-1.93749e-03
++ v(u1b_inn)=-4.99988e-04
++ v(u1b_out)=-1.93749e-03
++ v(xu12a_bd.innoff)=-5.80862e-07
++ v(xu12a_bd.inpoff)=4.994191e-04
++ v(xu12a_bd.n1)=-5.79734e-02
++ v(xu12a_bd.n2)=-5.79734e-02
++ v(xu12b_bd.innoff)=5.347328e-07
++ v(xu12b_bd.inpoff)=5.005347e-04
++ v(xu12b_bd.n1)=5.701858e-02
++ v(xu12b_bd.n2)=5.701858e-02
++ v(xu1a.innoff)=-1.15860e-08
++ v(xu1a.inpoff)=4.999884e-04
++ v(xu1a.n1)=-1.94876e-03
++ v(xu1a.n2)=-1.94876e-03
++ v(xu1b.innoff)=-1.15860e-08
++ v(xu1b.inpoff)=4.999884e-04
++ v(xu1b.n1)=-1.94876e-03
++ v(xu1b.n2)=-1.94876e-03
+* NOISE initial values (2026-09-23, found during the WN DC-bias investigation, NOT a
+* circuit error): Q35's breakdown node no_n491 hangs on its bias via R128(1M)+C31(1u) --
+* time constant ~1s (R128*C31), measured up to full settling ~2-5s. Without .ic (plain uic from 0V) the whole NOISE stage is far
+* outside its operating point during this charging phase (U24A hangs
+* on the +B4 rail, WN wrongly >13V instead of ~0V) -- exactly the same pattern as
+* with CY's own slow nodes above, only not caught with .ic here before.
+* Values taken from the isolated diagnostic run (
+* t=1.99s, practically fully settled); with these .ic WN settles immediately
+* in the normal mV range (verified).
++ v(no_n491)=6.99 v(no_n492)=14.999 v(no_n361)=0 v(no_n489)=0 v(no_n362)=0
+* RM initial values (DC .op of the minimal deck, RM switch position O)
++ v(rm_n175)=-1.673080e-02
++ v(rm_n176)=-1.500000e+01
++ v(rm_n177)=4.412663e-11
++ v(rm_n178)=8.978890e-03
++ v(rm_n179)=-2.458720e-02
++ v(rm_n180)=1.794829e-02
++ v(rm_n181)=1.199385e-06
++ v(rm_n182)=5.104271e-01
++ v(rm_n183)=5.408616e-06
++ v(rm_n184)=2.937500e-03
++ v(rm_n185)=-1.591320e+00
++ v(rm_n306)=4.412663e-02
++ v(rm_n317)=3.681000e+00
++ v(rm_n318)=2.554819e-08
++ v(rm_n319)=3.681000e+00
++ v(rm_n324)=8.978166e-03
++ v(rm_n326)=8.986124e-03
++ v(rm_n328)=-1.591320e+00
++ v(rm_n329)=-9.827500e-01
++ v(rm_n330)=-1.591320e+00
++ v(rm_n332)=6.219171e-04
++ v(rm_n333)=6.244591e-04
++ v(rm_n336)=6.226557e-04
++ v(rm_n337)=6.244548e-04
++ v(rm_n338)=4.412663e-11
++ v(rm_n339)=1.249399e-04
++ v(rm_n340)=-4.702510e-02
++ v(rm_n343)=-5.004550e-04
++ v(rm_n344)=4.412665e-02
++ v(rm_n345)=4.412629e-02
++ v(rm_n347)=2.437838e-03
++ v(rm_n348)=2.437838e-03
++ v(rm_n351)=-2.458720e-02
++ v(rm_n352)=0.000000e+00
++ v(rm_n353)=1.250456e-04
++ v(rm_n354)=-5.737500e-02
++ v(rm_n355)=1.163308e-02
++ v(rm_n357)=1.599826e-05
++ v(rm_n473)=-1.591320e+00
++ v(rm_out)=-2.107470e-02
++ v(xrmu19a.innoff)=-3.379460e-07
++ v(xrmu19a.inpoff)=4.996621e-04
++ v(xrmu19a.n1)=-2.529040e-02
++ v(xrmu19a.n2)=-2.529040e-02
++ v(xrmu19a.vout_hi)=1.339000e+01
++ v(xrmu19a.vout_lo)=-1.339000e+01
++ v(xrmu20a.innoff)=-4.850710e-07
++ v(xrmu20a.inpoff)=4.995149e-04
++ v(xrmu20a.n1)=-4.731280e-02
++ v(xrmu20a.n2)=-4.731280e-02
++ v(xrmu20a.vout_hi)=1.339000e+01
++ v(xrmu20a.vout_lo)=-1.339000e+01
++ v(xrmu20b.innoff)=4.548166e-07
++ v(xrmu20b.inpoff)=5.004548e-04
++ v(xrmu20b.n1)=4.468142e-02
++ v(xrmu20b.n2)=4.468142e-02
++ v(xrmu20b.vout_hi)=1.339000e+01
++ v(xrmu20b.vout_lo)=-1.339000e+01
++ v(xrmu21a.innoff)=-5.864430e-07
++ v(xrmu21a.inpoff)=4.994136e-04
++ v(xrmu21a.n1)=-5.744770e-02
++ v(xrmu21a.n2)=-5.744770e-02
++ v(xrmu21a.vout_hi)=1.339000e+01
++ v(xrmu21a.vout_lo)=-1.339000e+01
++ v(dfn_CRM115_3)=-5.737500e-02
++ v(dfn_CRM115_4)=-5.737500e-02
++ v(dfn_CRM115_5)=-5.737500e-02
++ v(dfn_CRM116_3)=0.000000e+00
++ v(dfn_CRM116_4)=0.000000e+00
++ v(dfn_CRM116_5)=0.000000e+00
++ v(dfn_CRM117_3)=-4.702510e-02
++ v(dfn_CRM117_4)=-4.702510e-02
++ v(dfn_CRM117_5)=-4.702510e-02
++ v(dfn_CRM118_3)=-4.702510e-02
++ v(dfn_CRM118_4)=-4.702510e-02
++ v(dfn_CRM118_5)=-4.702510e-02
++ v(dfn_CRM119_3)=4.412663e-11
++ v(dfn_CRM119_4)=4.412663e-11
++ v(dfn_CRM119_5)=4.412663e-11
+* HC initial values (DC .op of the minimal deck, HC switch position O)
++ v(hc_cptrig)=-1.500000e+01
++ v(hc_n186)=2.554819e-08
++ v(hc_n187)=3.681000e+00
++ v(hc_n188)=3.681000e+00
++ v(hc_n189)=-3.737340e-01
++ v(hc_n190)=-3.737640e-01
++ v(hc_n191)=-4.791870e-01
++ v(hc_n192)=-1.500000e+01
++ v(hc_n193)=-3.739360e-01
++ v(hc_n194)=-3.737490e-01
++ v(hc_n195)=1.500000e+01
++ v(hc_n196)=-3.739420e-01
++ v(hc_n197)=-3.739420e-01
++ v(hc_n198)=-8.580920e+00
++ v(hc_n199)=-6.249940e-03
++ v(hc_n200)=-2.710440e-04
++ v(hc_n201)=-1.398630e-02
++ v(hc_n202)=-4.999440e-04
++ v(hc_n203)=0.000000e+00
++ v(hc_n204)=0.000000e+00
++ v(hc_n205)=2.437838e-03
++ v(hc_n206)=2.437838e-03
++ v(hc_n207)=0.000000e+00
++ v(hc_n208)=0.000000e+00
++ v(hc_n209)=-5.000000e+00
++ v(hc_n210)=-1.498780e+01
++ v(hc_n211)=-2.126910e-03
++ v(hc_n212)=-6.516920e-05
++ v(hc_n213)=2.409088e-01
++ v(hc_n214)=-1.474190e+01
++ v(hc_n215)=-2.125470e-03
++ v(hc_n216)=-2.126910e-03
++ v(hc_n217)=-2.490000e-06
++ v(hc_n218)=-1.490090e+01
++ v(hc_n220)=-1.490070e+01
++ v(hc_n221)=-1.000000e+01
++ v(hc_n223)=-1.500000e+01
++ v(hc_n224)=-2.999940e-04
++ v(hc_n225)=-1.680000e-06
++ v(hc_n226)=3.313008e-06
++ v(hc_n227)=1.498955e+01
++ v(hc_n228)=5.289123e-09
++ v(hc_n229)=1.499998e+01
++ v(hc_n230)=1.498954e+01
++ v(hc_n232)=1.498954e+01
++ v(hc_n234)=0.000000e+00
++ v(hc_n235)=-8.243500e-01
++ v(hc_n240)=-2.142710e-01
++ v(hc_n275)=-8.243500e-01
++ v(hc_n277)=1.446393e+01
++ v(hc_n278)=-5.174930e-02
++ v(hc_n279)=2.437838e-03
++ v(hc_n280)=2.937500e-03
++ v(hc_n281)=2.437838e-03
++ v(hc_n282)=-2.458720e-02
++ v(hc_n283)=2.437838e-03
++ v(hc_n284)=-1.702010e-04
++ v(hc_n285)=1.499999e+01
++ v(hc_n286)=0.000000e+00
++ v(hc_n287)=-1.474190e+01
++ v(hc_out)=-2.107470e-02
++ v(xhcu19b.innoff)=-3.379140e-07
++ v(xhcu19b.inpoff)=4.996621e-04
++ v(xhcu19b.n1)=-2.528720e-02
++ v(xhcu19b.n2)=-2.528720e-02
++ v(xhcu19b.vout_hi)=1.339000e+01
++ v(xhcu19b.vout_lo)=-1.339000e+01
++ v(xhcu21b.innoff)=-5.550160e-08
++ v(xhcu21b.inpoff)=4.999445e-04
++ v(xhcu21b.n1)=-6.339380e-03
++ v(xhcu21b.n2)=-6.339380e-03
++ v(xhcu21b.vout_hi)=1.339000e+01
++ v(xhcu21b.vout_lo)=-1.339000e+01
++ v(xhcu22.cx)=-1.474190e+01
+* Tom initial values (DC .op of the reduced deck, Tom switch position O)
++ v(dfn_cht103_0)=-1.496930e-04
++ v(dfn_cht103_1)=-1.496930e-04
++ v(dfn_cht103_2)=-1.496930e-04
++ v(dfn_cht103_3)=-1.496930e-04
++ v(dfn_cht103_4)=-1.496930e-04
++ v(dfn_cht104_0)=-4.729970e-02
++ v(dfn_cht104_1)=-4.729970e-02
++ v(dfn_cht104_2)=-4.729970e-02
++ v(dfn_cht104_3)=-4.729970e-02
++ v(dfn_cht104_4)=-4.729970e-02
++ v(dfn_cht105_0)=6.671902e-05
++ v(dfn_cht105_1)=6.671902e-05
++ v(dfn_cht105_2)=6.671902e-05
++ v(dfn_cht105_3)=6.671902e-05
++ v(dfn_cht105_4)=6.671902e-05
++ v(dfn_clt76_0)=-2.058930e-04
++ v(dfn_clt76_1)=-2.058930e-04
++ v(dfn_clt76_2)=-2.058930e-04
++ v(dfn_clt76_3)=-2.058930e-04
++ v(dfn_clt76_4)=-2.058930e-04
++ v(dfn_clt77_0)=-4.735590e-02
++ v(dfn_clt77_1)=-4.735590e-02
++ v(dfn_clt77_2)=-4.735590e-02
++ v(dfn_clt77_3)=-4.735590e-02
++ v(dfn_clt77_4)=-4.735590e-02
++ v(dfn_clt78_0)=6.680347e-05
++ v(dfn_clt78_1)=6.680347e-05
++ v(dfn_clt78_2)=6.680347e-05
++ v(dfn_clt78_3)=6.680347e-05
++ v(dfn_clt78_4)=6.680347e-05
++ v(dfn_cmt90_0)=-7.477260e-05
++ v(dfn_cmt90_1)=-7.477260e-05
++ v(dfn_cmt90_2)=-7.477260e-05
++ v(dfn_cmt90_3)=-7.477260e-05
++ v(dfn_cmt90_4)=-7.477260e-05
++ v(dfn_cmt91_0)=-4.722480e-02
++ v(dfn_cmt91_1)=-4.722480e-02
++ v(dfn_cmt91_2)=-4.722480e-02
++ v(dfn_cmt91_3)=-4.722480e-02
++ v(dfn_cmt91_4)=-4.722480e-02
++ v(dfn_cmt92_0)=6.660645e-05
++ v(dfn_cmt92_1)=6.660645e-05
++ v(dfn_cmt92_2)=6.660645e-05
++ v(dfn_cmt92_3)=6.660645e-05
++ v(dfn_cmt92_4)=6.660645e-05
++ v(ht_n141)=3.681000e+00
++ v(ht_n142)=3.681000e+00
++ v(ht_n143)=2.554819e-08
++ v(ht_n144)=8.836174e-08
++ v(ht_n145)=1.590246e-07
++ v(ht_n146)=3.491523e-04
++ v(ht_n147)=6.671902e-05
++ v(ht_n148)=-1.496930e-04
++ v(ht_n149)=-4.729970e-02
++ v(ht_n150)=1.373267e-05
++ v(ht_n151)=1.351664e-05
++ v(ht_n152)=-5.004550e-04
++ v(ht_n153)=4.440128e-02
++ v(ht_n154)=2.620404e-02
++ v(ht_n155)=2.437836e-03
++ v(ht_n156)=2.437836e-03
++ v(ht_n157)=-2.458720e-02
++ v(ht_n158)=1.500000e+01
++ v(ht_n161)=8.006788e-03
++ v(ht_n162)=2.043337e-04
++ v(ht_n165)=-8.926290e-03
++ v(ht_n167)=2.038375e-04
++ v(ht_n168)=1.707613e-04
++ v(ht_n169)=6.671902e-05
++ v(ht_n170)=8.006789e-03
++ v(ht_n171)=4.003394e-03
++ v(ht_n172)=2.937500e-03
++ v(ht_n173)=3.498280e-04
++ v(ht_n174)=3.498280e-04
++ v(ht_out)=-2.214470e-02
++ v(lt_n100)=8.016923e-03
++ v(lt_n101)=2.043337e-04
++ v(lt_n102)=-8.926290e-03
++ v(lt_n103)=1.707613e-04
++ v(lt_n104)=6.680347e-05
++ v(lt_n105)=8.016923e-03
++ v(lt_n106)=4.008461e-03
++ v(lt_n107)=2.936288e-04
++ v(lt_n109)=2.937500e-03
++ v(lt_n111)=2.936288e-04
++ v(lt_n267)=2.038375e-04
++ v(lt_n82)=3.681000e+00
++ v(lt_n83)=3.681000e+00
++ v(lt_n84)=2.554819e-08
++ v(lt_n85)=8.836174e-08
++ v(lt_n86)=1.590246e-07
++ v(lt_n87)=2.930613e-04
++ v(lt_n88)=6.680347e-05
++ v(lt_n89)=-2.058930e-04
++ v(lt_n90)=-4.735590e-02
++ v(lt_n91)=1.375006e-05
++ v(lt_n92)=1.353374e-05
++ v(lt_n93)=-5.004560e-04
++ v(lt_n94)=4.445748e-02
++ v(lt_n95)=2.623720e-02
++ v(lt_n96)=2.437836e-03
++ v(lt_n97)=2.437836e-03
++ v(lt_n98)=-2.458720e-02
++ v(lt_n99)=1.500000e+01
++ v(lt_out)=-2.212240e-02
++ v(mt_n108)=3.681000e+00
++ v(mt_n110)=3.681000e+00
++ v(mt_n112)=2.554819e-08
++ v(mt_n113)=8.836174e-08
++ v(mt_n114)=1.590246e-07
++ v(mt_n115)=4.239268e-04
++ v(mt_n116)=6.660645e-05
++ v(mt_n117)=-7.477260e-05
++ v(mt_n118)=-4.722480e-02
++ v(mt_n119)=1.370950e-05
++ v(mt_n120)=1.349383e-05
++ v(mt_n121)=-5.004540e-04
++ v(mt_n122)=4.432636e-02
++ v(mt_n123)=2.615982e-02
++ v(mt_n124)=2.437835e-03
++ v(mt_n125)=2.437835e-03
++ v(mt_n126)=-2.458720e-02
++ v(mt_n127)=1.500000e+01
++ v(mt_n128)=7.993278e-03
++ v(mt_n130)=2.043337e-04
++ v(mt_n131)=-8.926290e-03
++ v(mt_n132)=2.038375e-04
++ v(mt_n133)=1.707613e-04
++ v(mt_n134)=6.660645e-05
++ v(mt_n135)=7.993279e-03
++ v(mt_n136)=3.996639e-03
++ v(mt_n137)=2.937500e-03
++ v(mt_n138)=4.247466e-04
++ v(mt_n139)=4.247466e-04
++ v(mt_n140)=6.660645e-05
++ v(mt_out)=-2.237830e-02
++ v(xhtu16b.innoff)=-3.358150e-07
++ v(xhtu16b.inpoff)=4.996642e-04
++ v(xhtu16b.n1)=-2.507740e-02
++ v(xhtu16b.n2)=-2.507740e-02
++ v(xhtu16b.vout_hi)=1.339000e+01
++ v(xhtu16b.vout_lo)=-1.339000e+01
++ v(xhtu18a.innoff)=4.551460e-07
++ v(xhtu18a.inpoff)=5.004551e-04
++ v(xhtu18a.n1)=4.471436e-02
++ v(xhtu18a.n2)=4.471436e-02
++ v(xhtu18a.vout_hi)=1.339000e+01
++ v(xhtu18a.vout_lo)=-1.339000e+01
++ v(xhtu18b.innoff)=-4.791500e-07
++ v(xhtu18b.inpoff)=4.995208e-04
++ v(xhtu18b.n1)=-4.758900e-02
++ v(xhtu18b.n2)=-4.758900e-02
++ v(xhtu18b.vout_hi)=1.339000e+01
++ v(xhtu18b.vout_lo)=-1.339000e+01
++ v(xltu13b.innoff)=-3.358590e-07
++ v(xltu13b.inpoff)=4.996641e-04
++ v(xltu13b.n1)=-2.508170e-02
++ v(xltu13b.n2)=-2.508170e-02
++ v(xltu13b.vout_hi)=1.339000e+01
++ v(xltu13b.vout_lo)=-1.339000e+01
++ v(xltu15a.innoff)=4.557121e-07
++ v(xltu15a.inpoff)=5.004557e-04
++ v(xltu15a.n1)=4.477096e-02
++ v(xltu15a.n2)=4.477096e-02
++ v(xltu15a.vout_hi)=1.339000e+01
++ v(xltu15a.vout_lo)=-1.339000e+01
++ v(xltu15b.innoff)=-4.779380e-07
++ v(xltu15b.inpoff)=4.995221e-04
++ v(xltu15b.n1)=-4.764560e-02
++ v(xltu15b.n2)=-4.764560e-02
++ v(xltu15b.vout_hi)=1.339000e+01
++ v(xltu15b.vout_lo)=-1.339000e+01
++ v(xmtu16a.innoff)=-3.353570e-07
++ v(xmtu16a.inpoff)=4.996646e-04
++ v(xmtu16a.n1)=-2.503160e-02
++ v(xmtu16a.n2)=-2.503160e-02
++ v(xmtu16a.vout_hi)=1.339000e+01
++ v(xmtu16a.vout_lo)=-1.339000e+01
++ v(xmtu17a.innoff)=4.543915e-07
++ v(xmtu17a.inpoff)=5.004544e-04
++ v(xmtu17a.n1)=4.463892e-02
++ v(xmtu17a.n2)=4.463892e-02
++ v(xmtu17a.vout_hi)=1.339000e+01
++ v(xmtu17a.vout_lo)=-1.339000e+01
++ v(xmtu17b.innoff)=-4.807650e-07
++ v(xmtu17b.inpoff)=4.995192e-04
++ v(xmtu17b.n1)=-4.751370e-02
++ v(xmtu17b.n2)=-4.751370e-02
++ v(xmtu17b.vout_hi)=1.339000e+01
++ v(xmtu17b.vout_lo)=-1.339000e+01
+* Solver settings for the long run: Gear integration and a 20 us maximum step.
+* With the default settings a run of more than ~0.5 s can stop with
+* "Timestep too small" (at the idle PC-2 JFET). .save keeps only the dumped nodes
+* (all ~1150 nodes would not fit into memory).
+.options method=gear
+.save v(cy_out) v(bd_out) v(sd_out) v(busr) v(busl) v(u1a_out) v(u1b_out) v(bd_n53) v(bd_n55) v(bd_n56)
+.tran 20u 4 0 20u uic
+
+* Outputs: cy_out, bd_out, sd_out, oh_out, ch_out
+.control
+run
+wrdata tr808_full_nodes.txt v(cy_out) v(bd_out) v(sd_out) v(busr) v(busl) v(u1a_out) v(u1b_out) v(bd_n53) v(bd_n55) v(bd_n56)
+.endc
+.end
